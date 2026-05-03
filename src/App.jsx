@@ -8,6 +8,7 @@ import {
   Clock3,
   FileSpreadsheet,
   Plus,
+  RotateCcw,
   Search,
   Sparkles,
   UserRound,
@@ -75,6 +76,8 @@ function App() {
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   useEffect(() => {
     loadState();
@@ -101,7 +104,9 @@ function App() {
 
   const employees = state.employees || [];
   const selected = employees.find((employee) => employee.id === selectedId) || employees[0];
-  const filteredEmployees = employees.filter((employee) => employee.name.toLowerCase().includes(query.toLowerCase()));
+  const filteredEmployees = employees.filter((employee) =>
+    employee.name.toLowerCase().includes(query.toLowerCase()) && (!roleFilter || employee.role === roleFilter),
+  );
   const selectedMarks = useMemo(() => {
     const marks = {};
     for (let day = 1; day <= daysInMonth(month); day += 1) {
@@ -138,12 +143,31 @@ function App() {
     setSelectedId(next.employees[0]?.id || null);
   }
 
+  async function restoreEmployee(employeeId) {
+    const next = await api(`/api/employees/${encodeURIComponent(employeeId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "active" }),
+    });
+    setState(next);
+    setSelectedId(employeeId);
+    setArchiveOpen(false);
+  }
+
   async function setStatus(status) {
     if (!selected) return;
     const date = `${month}-${String(selectedDay).padStart(2, "0")}`;
     const next = await api("/api/attendance", {
       method: "POST",
       body: JSON.stringify({ date, employeeId: selected.id, status }),
+    });
+    setState(next);
+  }
+
+  async function markAllPresent() {
+    const date = `${month}-${String(selectedDay).padStart(2, "0")}`;
+    const next = await api("/api/bulk-attendance", {
+      method: "POST",
+      body: JSON.stringify({ date, status: "present", role: roleFilter }),
     });
     setState(next);
   }
@@ -214,6 +238,57 @@ function App() {
             >
               <Plus className="size-4" />
             </button>
+          </div>
+
+          <div className="rounded-[24px] border border-[#dfe6f2] bg-white p-3 shadow-[0_12px_30px_rgba(15,31,76,0.06)]">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#8b96ad]">Бүгінгі бақылау</p>
+                <p className="text-sm font-black">{state.today}</p>
+              </div>
+              <button onClick={markAllPresent} className="rounded-[15px] bg-[#0b1b5f] px-3 py-2 text-xs font-black text-white">
+                Барлығын жұмыста
+              </button>
+            </div>
+            <div className="grid grid-cols-5 gap-1.5">
+              <StatusMini label="Ж" value={state.todayControl?.present || 0} tone="present" />
+              <StatusMini label="0.5" value={state.todayControl?.half || 0} tone="half" />
+              <StatusMini label="Жоқ" value={state.todayControl?.absent || 0} tone="absent" />
+              <StatusMini label="Дем" value={state.todayControl?.dayoff || 0} tone="dayoff" />
+              <div className="rounded-xl bg-[#eef3ff] px-2 py-1 text-center text-[#0b1b5f]">
+                <p className="text-[10px] font-black">Белгі жоқ</p>
+                <p className="text-sm font-black">{state.todayControl?.unmarked || 0}</p>
+              </div>
+            </div>
+            {!!state.unmarkedEmployees?.length && (
+              <div className="mt-3 rounded-[16px] bg-[#f4f7fc] px-3 py-2">
+                <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#8b96ad]">Әлі белгі жоқ</p>
+                <p className="mt-1 text-sm font-bold text-[#24314a]">{state.unmarkedEmployees.map((employee) => employee.name).join(", ")}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="no-scrollbar flex gap-2 overflow-x-auto">
+            <button
+              onClick={() => setRoleFilter("")}
+              className={cx("shrink-0 rounded-full px-4 py-2 text-xs font-black", !roleFilter ? "bg-[#0b1b5f] text-white" : "bg-white text-[#526176]")}
+            >
+              Барлығы
+            </button>
+            {(state.roles || []).map((role) => (
+              <button
+                key={role}
+                onClick={() => setRoleFilter(role)}
+                className={cx("shrink-0 rounded-full px-4 py-2 text-xs font-black", roleFilter === role ? "bg-[#0b1b5f] text-white" : "bg-white text-[#526176]")}
+              >
+                {role}
+              </button>
+            ))}
+            {!!state.archivedEmployees?.length && (
+              <button onClick={() => setArchiveOpen(true)} className="shrink-0 rounded-full bg-[#e9edf4] px-4 py-2 text-xs font-black text-[#526176]">
+                Архив
+              </button>
+            )}
           </div>
 
           <div className="no-scrollbar flex gap-2 overflow-x-auto">
@@ -370,6 +445,32 @@ function App() {
             <button onClick={addEmployee} className="mt-4 w-full rounded-[18px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_14px_30px_rgba(11,27,95,0.24)]">
               Қосу және сақтау
             </button>
+          </div>
+        </div>
+      )}
+
+      {archiveOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-end bg-[#061133]/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[430px] rounded-[28px] bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-black">Архив</h3>
+              <button onClick={() => setArchiveOpen(false)} className="grid size-10 place-items-center rounded-full bg-[#f4f7fc] text-[#64748b]" aria-label="Жабу">
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {state.archivedEmployees?.map((employee) => (
+                <div key={employee.id} className="flex items-center justify-between rounded-[18px] bg-[#f4f7fc] px-4 py-3">
+                  <div>
+                    <p className="font-black">{employee.name}</p>
+                    <p className="text-xs font-bold text-[#7a86a0]">{employee.role}</p>
+                  </div>
+                  <button onClick={() => restoreEmployee(employee.id)} className="grid size-10 place-items-center rounded-full bg-white text-[#0b1b5f]">
+                    <RotateCcw className="size-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

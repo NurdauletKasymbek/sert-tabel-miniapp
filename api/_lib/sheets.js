@@ -10,6 +10,8 @@ const STATUSES = {
 const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні"];
 const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні", "Рөлі", "Белгі", "Уақыт", "Жаңартылды"];
 const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"];
+const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
+const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
 
 function env(name) {
   return process.env[name] || "";
@@ -79,14 +81,16 @@ async function sheetsFetch(pathname, options = {}) {
 async function ensureSheets() {
   const spreadsheet = await sheetsFetch("?fields=sheets.properties.title");
   const existing = new Set(spreadsheet.sheets.map((sheet) => sheet.properties.title));
-  const requests = ["Employees", "Attendance", "Summary"]
+  const requests = ["Employees", "Attendance", "Daily Control", "Summary", "History"]
     .filter((title) => !existing.has(title))
     .map((title) => ({ addSheet: { properties: { title } } }));
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 
   await ensureHeader("Employees!A1:F1", EMPLOYEE_HEADERS);
   await ensureHeader("Attendance!A1:G1", ATTENDANCE_HEADERS);
+  await ensureHeader("Daily Control!A1:G1", DAILY_HEADERS);
   await ensureHeader("Summary!A1:I1", SUMMARY_HEADERS);
+  await ensureHeader("History!A1:G1", HISTORY_HEADERS);
 }
 
 async function ensureHeader(range, headers) {
@@ -156,13 +160,23 @@ function statusToLabel(status) {
 
 export async function loadStore() {
   await ensureSheets();
-  const [employeeRows, attendanceRows] = await Promise.all([
+  const [employeeRows, attendanceRows, historyRows] = await Promise.all([
     getValues("Employees!A2:F1000"),
     getValues("Attendance!A2:G5000"),
+    getValues("History!A2:G5000"),
   ]);
   const employees = employeeRows.filter((row) => row[0]).map(rowToEmployee);
   const attendance = attendanceRows.filter((row) => row[0] && row[1]).map(rowToAttendance);
-  return { employees, attendance };
+  const history = historyRows.filter((row) => row[0]).map((row) => ({
+    at: row[0],
+    action: row[1],
+    employeeId: row[2],
+    name: row[3],
+    date: row[4],
+    oldLabel: row[5],
+    newLabel: row[6],
+  }));
+  return { employees, attendance, history };
 }
 
 export function publicState(store) {
@@ -184,14 +198,33 @@ export function publicState(store) {
     .filter((employee) => employee.status !== "archived")
     .sort((a, b) => a.name.localeCompare(b.name, "kk"))
     .map((employee) => ({ ...employee, counts: statusCounts(attendanceMap, employee.id, month) }));
+  const todayRecords = attendanceMap[today] || {};
+  const unmarkedEmployees = activeEmployees.filter((employee) => !todayRecords[employee.id]);
+  const todayControl = dayControl(attendanceMap, activeEmployees, today);
+  const roles = [...new Set(activeEmployees.map((employee) => employee.role || "Қызметкер"))].sort((a, b) => a.localeCompare(b, "kk"));
   return {
     today,
     month,
     employees: activeEmployees,
     archivedEmployees: store.employees.filter((employee) => employee.status === "archived"),
+    unmarkedEmployees,
+    todayControl,
+    roles,
+    recentHistory: (store.history || []).slice(-12).reverse(),
     attendance: attendanceMap,
     sheetSync: null,
   };
+}
+
+export function dayControl(attendanceMap, employees, date) {
+  const counts = { present: 0, half: 0, absent: 0, dayoff: 0, unmarked: 0 };
+  const records = attendanceMap[date] || {};
+  for (const employee of employees) {
+    const status = records[employee.id]?.status;
+    if (counts[status] !== undefined) counts[status] += 1;
+    else counts.unmarked += 1;
+  }
+  return { date, ...counts, total: employees.length };
 }
 
 export function statusCounts(attendanceMap, employeeId, month) {
@@ -234,13 +267,40 @@ export async function saveAttendance(attendance) {
   }
 }
 
+export async function appendHistory(rows) {
+  if (!rows.length) return;
+  await ensureSheets();
+  const existing = await getValues("History!A2:G5000");
+  await updateRange(`History!A${existing.length + 2}:G5000`, rows.map((row) => [
+    row.at,
+    row.action,
+    row.employeeId,
+    row.name,
+    row.date,
+    row.oldLabel || "",
+    row.newLabel || "",
+  ]));
+}
+
 export async function rebuildSummary(store) {
   const attendanceMap = publicState(store).attendance;
   const months = new Set(store.attendance.map((row) => row.date.slice(0, 7)));
   months.add(publicState(store).month);
+  const employees = store.employees.sort((a, b) => a.name.localeCompare(b.name, "kk"));
+
+  const dailyRows = [DAILY_HEADERS];
+  const dates = new Set(store.attendance.map((row) => row.date));
+  dates.add(publicState(store).today);
+  for (const date of [...dates].sort()) {
+    const counts = dayControl(attendanceMap, employees.filter((employee) => employee.status !== "archived"), date);
+    dailyRows.push([date, counts.present, counts.half, counts.absent, counts.dayoff, counts.unmarked, counts.total]);
+  }
+  await clearRange("Daily Control!A1:G2000");
+  await updateRange("Daily Control!A1:G2000", dailyRows);
+
   const rows = [SUMMARY_HEADERS];
   for (const month of [...months].sort()) {
-    for (const employee of store.employees.sort((a, b) => a.name.localeCompare(b.name, "kk"))) {
+    for (const employee of employees) {
       const counts = statusCounts(attendanceMap, employee.id, month);
       rows.push([
         month,
@@ -257,6 +317,7 @@ export async function rebuildSummary(store) {
   }
   await clearRange("Summary!A1:I2000");
   await updateRange("Summary!A1:I2000", rows);
+  await applyBasicFormatting();
 }
 
 export function currentTime() {
@@ -268,3 +329,26 @@ export function currentTime() {
 }
 
 export { STATUSES, statusToLabel };
+
+async function applyBasicFormatting() {
+  const spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title)");
+  const ids = Object.fromEntries(spreadsheet.sheets.map((sheet) => [sheet.properties.title, sheet.properties.sheetId]));
+  const requests = Object.entries(ids)
+    .filter(([title]) => ["Employees", "Attendance", "Daily Control", "Summary", "History"].includes(title))
+    .flatMap(([, sheetId]) => [
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.04, green: 0.11, blue: 0.37 },
+              textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true },
+            },
+          },
+          fields: "userEnteredFormat(backgroundColor,textFormat)",
+        },
+      },
+      { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
+    ]);
+  if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
+}

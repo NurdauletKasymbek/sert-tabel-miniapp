@@ -1,4 +1,4 @@
-import { currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, STATUSES } from "./_lib/sheets.js";
+import { appendHistory, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, STATUSES } from "./_lib/sheets.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -16,6 +16,7 @@ export default async function handler(req, res) {
   }
   const label = statusToLabel(status);
   const existing = store.attendance.find((row) => row.date === date && row.employeeId === employeeId);
+  const oldLabel = existing?.label || "";
   if (existing) {
     existing.name = employee.name;
     existing.role = employee.role || "Қызметкер";
@@ -34,6 +35,7 @@ export default async function handler(req, res) {
     });
   }
   await saveAttendance(store.attendance);
+  await appendHistory([{ at: new Date().toISOString(), action: oldLabel ? "Белгі өзгерді" : "Белгі қойылды", employeeId, name: employee.name, date, oldLabel, newLabel: label }]);
   await rebuildSummary(store);
   res.status(200).json(publicState(store));
 }

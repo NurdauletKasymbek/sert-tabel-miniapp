@@ -29,6 +29,7 @@ const defaultData = {
   nextEmployeeId: 1,
   employees: {},
   attendance: {},
+  history: [],
   sessions: {},
   sheetSync: null,
 };
@@ -79,6 +80,7 @@ function normalizeData(data) {
   data.nextEmployeeId ||= 1;
   data.employees ||= {};
   data.attendance ||= {};
+  data.history ||= [];
   data.sessions ||= {};
   for (const employee of Object.values(data.employees)) {
     employee.status ||= "active";
@@ -142,31 +144,63 @@ function statusCounts(data, employeeId, month = monthFromToday()) {
 }
 
 function publicState(data) {
+  const currentToday = today();
+  const currentMonth = monthFromToday();
+  const employees = activeEmployees(data).map(([id, employee]) => ({
+    id,
+    name: employee.name,
+    role: employee.role || "Қызметкер",
+    status: employee.status,
+    counts: statusCounts(data, id),
+  }));
+  const todayRecords = data.attendance[currentToday] || {};
+  const unmarkedEmployees = employees.filter((employee) => !todayRecords[employee.id]);
+  const todayControl = dayControl(data, employees, currentToday);
   return {
-    today: today(),
-    month: monthFromToday(),
-    employees: activeEmployees(data).map(([id, employee]) => ({
-      id,
-      name: employee.name,
-      role: employee.role || "Қызметкер",
-      status: employee.status,
-      counts: statusCounts(data, id),
-    })),
+    today: currentToday,
+    month: currentMonth,
+    employees,
     archivedEmployees: allEmployees(data)
       .filter(([, employee]) => employee.status === "archived")
       .map(([id, employee]) => ({ id, name: employee.name, role: employee.role || "Қызметкер", status: employee.status })),
+    unmarkedEmployees,
+    todayControl,
+    roles: [...new Set(employees.map((employee) => employee.role || "Қызметкер"))].sort((a, b) => a.localeCompare(b, "kk")),
+    recentHistory: data.history.slice(-12).reverse(),
     attendance: data.attendance,
     sheetSync: data.sheetSync,
   };
 }
 
+function dayControl(data, employees, date) {
+  const counts = { present: 0, half: 0, absent: 0, dayoff: 0, unmarked: 0 };
+  const records = data.attendance[date] || {};
+  for (const employee of employees) {
+    const status = records[employee.id]?.status;
+    if (counts[status] !== undefined) counts[status] += 1;
+    else counts.unmarked += 1;
+  }
+  return { date, ...counts, total: employees.length };
+}
+
 function setAttendance(data, date, employeeId, status) {
+  const oldStatus = data.attendance[date]?.[employeeId]?.status || "";
   data.attendance[date] ||= {};
   data.attendance[date][employeeId] = {
     status,
     updatedAt: new Date().toISOString(),
     time: formatTime(),
   };
+  const employee = data.employees[employeeId];
+  data.history.push({
+    at: new Date().toISOString(),
+    action: oldStatus ? "Белгі өзгерді" : "Белгі қойылды",
+    employeeId,
+    name: employee?.name || "",
+    date,
+    oldLabel: oldStatus ? STATUSES[oldStatus]?.label || oldStatus : "",
+    newLabel: STATUSES[status]?.label || status,
+  });
 }
 
 async function readJson(req) {
@@ -218,6 +252,7 @@ async function handleRequest(req, res) {
       status: "active",
       createdAt: new Date().toISOString(),
     };
+    data.history.push({ at: new Date().toISOString(), action: "Қызметкер қосылды", employeeId: id, name, date: "", oldLabel: "", newLabel: "Белсенді" });
     await saveData(data);
     await trySyncSheets(data);
     sendJson(res, 201, publicState(data));
@@ -238,6 +273,15 @@ async function handleRequest(req, res) {
       data.employees[id].status = body.status;
       if (body.status === "archived") data.employees[id].archivedAt = new Date().toISOString();
       if (body.status === "active") delete data.employees[id].archivedAt;
+      data.history.push({
+        at: new Date().toISOString(),
+        action: body.status === "archived" ? "Архивке жіберілді" : "Архивтен қайтарылды",
+        employeeId: id,
+        name: data.employees[id].name,
+        date: "",
+        oldLabel: body.status === "archived" ? "Белсенді" : "Архив",
+        newLabel: body.status === "archived" ? "Архив" : "Белсенді",
+      });
     }
     await saveData(data);
     await trySyncSheets(data);
@@ -253,6 +297,26 @@ async function handleRequest(req, res) {
       return;
     }
     setAttendance(data, date, employeeId, status);
+    await saveData(data);
+    await trySyncSheets(data);
+    sendJson(res, 200, publicState(data));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/bulk-attendance") {
+    const body = await readJson(req);
+    const date = String(body.date || "");
+    const role = String(body.role || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      sendJson(res, 400, { error: "Күн қате" });
+      return;
+    }
+    for (const [id, employee] of activeEmployees(data)) {
+      if (role && employee.role !== role) continue;
+      setAttendance(data, date, id, "present");
+      const last = data.history[data.history.length - 1];
+      last.action = last.oldLabel ? "Жаппай өзгерді" : "Жаппай белгі қойылды";
+    }
     await saveData(data);
     await trySyncSheets(data);
     sendJson(res, 200, publicState(data));
@@ -332,7 +396,7 @@ async function googleSheetsFetch(pathname, options = {}) {
 async function ensureSheets() {
   const spreadsheet = await googleSheetsFetch("?fields=sheets.properties.title");
   const existing = new Set(spreadsheet.sheets.map((sheet) => sheet.properties.title));
-  const requests = ["Employees", "Attendance", "Summary"]
+  const requests = ["Employees", "Attendance", "Daily Control", "Summary", "History"]
     .filter((title) => !existing.has(title))
     .map((title) => ({ addSheet: { properties: { title } } }));
   if (requests.length) await googleSheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
@@ -377,6 +441,15 @@ async function syncGoogleSheets(data) {
     }
   }
 
+  const daily = [["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"]];
+  const dailyDates = new Set(Object.keys(data.attendance));
+  dailyDates.add(today());
+  const active = activeEmployees(data).map(([id, employee]) => ({ id, ...employee }));
+  for (const date of [...dailyDates].sort()) {
+    const counts = dayControl(data, active, date);
+    daily.push([date, counts.present, counts.half, counts.absent, counts.dayoff, counts.unmarked, counts.total]);
+  }
+
   const summary = [["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"]];
   const months = new Set(Object.keys(data.attendance).map((date) => date.slice(0, 7)));
   months.add(monthFromToday());
@@ -397,12 +470,33 @@ async function syncGoogleSheets(data) {
     }
   }
 
+  const history = [
+    ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"],
+    ...(data.history || []).map((row) => [
+      row.at,
+      row.action,
+      row.employeeId,
+      row.name,
+      row.date,
+      row.oldLabel || "",
+      row.newLabel || "",
+    ]),
+  ];
+
   await updateSheetRange("Employees!A1:F1000", employees);
   await updateSheetRange("Attendance!A1:G5000", attendance);
+  await updateSheetRange("Daily Control!A1:G2000", daily);
   await updateSheetRange("Summary!A1:I2000", summary);
+  await updateSheetRange("History!A1:G5000", history);
   data.sheetSync = {
     at: new Date().toISOString(),
-    rows: { employees: employees.length - 1, attendance: attendance.length - 1, summary: summary.length - 1 },
+    rows: {
+      employees: employees.length - 1,
+      attendance: attendance.length - 1,
+      daily: daily.length - 1,
+      summary: summary.length - 1,
+      history: history.length - 1,
+    },
   };
   await saveData(data);
 }

@@ -39,8 +39,10 @@ const defaultData = {
   nextEmployeeId: 1,
   employees: {},
   attendance: {},
+  history: [],
   sessions: {},
   sheetSync: null,
+  monthlyReportSent: "",
 };
 
 function loadEnvFile(filePath) {
@@ -92,6 +94,7 @@ function normalizeData(data) {
   data.nextEmployeeId ||= 1;
   data.employees ||= {};
   data.attendance ||= {};
+  data.history ||= [];
   data.sessions ||= {};
   for (const employee of Object.values(data.employees)) {
     employee.status ||= "active";
@@ -250,12 +253,23 @@ function nextEmployeeId(data) {
 }
 
 function setAttendance(data, date, employeeId, status) {
+  const oldStatus = data.attendance[date]?.[employeeId]?.status || "";
   data.attendance[date] ||= {};
   data.attendance[date][employeeId] = {
     status,
     updatedAt: new Date().toISOString(),
     time: formatTime(),
   };
+  const employee = data.employees[employeeId];
+  data.history.push({
+    at: new Date().toISOString(),
+    action: oldStatus ? "Белгі өзгерді" : "Белгі қойылды",
+    employeeId,
+    name: employee?.name || "",
+    date,
+    oldLabel: oldStatus ? STATUSES[oldStatus]?.label || oldStatus : "",
+    newLabel: STATUSES[status]?.label || status,
+  });
 }
 
 function getAttendance(data, date, employeeId) {
@@ -275,7 +289,6 @@ function daySummary(data, date) {
 
 function makeReport(data, month = currentMonth()) {
   const rows = allEmployees(data).map(([id, employee]) => {
-    let salaryDays = 0;
     const statuses = Object.fromEntries(Object.keys(STATUSES).map((status) => [status, 0]));
     const dates = [];
     for (let day = 1; day <= daysInMonth(month); day += 1) {
@@ -283,42 +296,42 @@ function makeReport(data, month = currentMonth()) {
       const record = getAttendance(data, date, id);
       if (!record) continue;
       statuses[record.status] += 1;
-      salaryDays += STATUSES[record.status]?.salaryFactor || 0;
       dates.push(`${date}:${STATUSES[record.status]?.short || record.status}`);
     }
-    const total = salaryDays * Number(employee.dailyRate || 0);
-    return { id, employee, statuses, salaryDays, total, dates };
+    const marked = Object.values(statuses).reduce((sum, count) => sum + count, 0);
+    return { id, employee, statuses, marked, dates };
   });
-  const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
-  return { month, rows, grandTotal };
+  return { month, rows };
 }
 
 function reportText(data, month = currentMonth()) {
   const report = makeReport(data, month);
   if (report.rows.length === 0) return `${month} айына қызметкерлер жоқ.`;
-  const lines = [`<b>${month} айлық есеп</b>`];
+  const lines = [`<b>${month} табель есебі</b>`];
   for (const row of report.rows) {
     const archived = row.employee.status === "archived" ? " (архив)" : "";
     lines.push(
-      `${escapeHtml(row.employee.name)}${archived}: ${row.salaryDays} күн × ${money(row.employee.dailyRate)} = <b>${money(row.total)}</b>`,
+      `${escapeHtml(row.employee.name)}${archived}: Жұмыста ${row.statuses.present}, Жарты күн ${row.statuses.half}, Жоқ ${row.statuses.absent}, Демалыс ${row.statuses.dayoff}, Барлығы <b>${row.marked}</b>`,
     );
   }
-  lines.push("", `Жалпы: <b>${money(report.grandTotal)}</b>`);
   return lines.join("\n");
 }
 
 function csvReport(data, month = currentMonth()) {
   const report = makeReport(data, month);
-  const lines = ["ID,Аты-жөні,Статус,Күндік ставка,Есептелетін күн,Айлық,Белгілер"];
+  const lines = ["ID,Аты-жөні,Статус,Рөлі,Жұмыста,Жарты күн,Жоқ,Демалыс,Барлығы белгіленген,Белгілер"];
   for (const row of report.rows) {
     lines.push(
       [
         row.id,
         row.employee.name,
         row.employee.status,
-        row.employee.dailyRate,
-        row.salaryDays,
-        row.total,
+        row.employee.role || "",
+        row.statuses.present,
+        row.statuses.half,
+        row.statuses.absent,
+        row.statuses.dayoff,
+        row.marked,
         row.dates.join(" "),
       ].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","),
     );
@@ -398,8 +411,8 @@ function employeeView(data, id) {
     `<b>${escapeHtml(employee.name)}</b>`,
     `ID: <code>${id}</code>`,
     `Статус: ${employee.status === "archived" ? "архив" : "белсенді"}`,
-    `Күндік ставка: <b>${money(employee.dailyRate)}</b>`,
-    `Осы ай: <b>${report?.salaryDays || 0}</b> күн, <b>${money(report?.total || 0)}</b>`,
+    `Рөлі: <b>${escapeHtml(employee.role || "Қызметкер")}</b>`,
+    `Осы ай: <b>${report?.marked || 0}</b> белгі`,
   ].join("\n");
 }
 
@@ -428,8 +441,8 @@ function personCalendarText(data, employeeId, month) {
   return [
     `<b>${escapeHtml(employee.name)}</b>`,
     `<b>${month} жеке календарь</b>`,
-    `Ставка: <b>${money(employee.dailyRate)}</b>`,
-    `Есеп: <b>${report?.salaryDays || 0}</b> күн, <b>${money(report?.total || 0)}</b>`,
+    `Рөлі: <b>${escapeHtml(employee.role || "Қызметкер")}</b>`,
+    `Белгіленген: <b>${report?.marked || 0}</b> күн`,
     marked.length ? `Белгілер: ${marked.join(", ")}` : "Бұл айда белгі жоқ.",
   ].join("\n");
 }
@@ -574,6 +587,15 @@ async function handlePendingText(message, data, session, text) {
       status: "active",
       createdAt: new Date().toISOString(),
     };
+    data.history.push({
+      at: new Date().toISOString(),
+      action: "Қызметкер қосылды",
+      employeeId: id,
+      name: data.employees[id].name,
+      date: "",
+      oldLabel: "",
+      newLabel: "Белсенді",
+    });
     clearSession(data, userId);
     await saveData(data);
     let syncText = "";
@@ -644,6 +666,16 @@ async function handleAdminCommand(message, data, command, args) {
   if (command === "/report" || command === "есеп") {
     const month = /^\d{4}-\d{2}$/.test(args) ? args : currentMonth();
     await sendMessage(chatId, reportText(data, month), { reply_markup: reportButtons(month) });
+    return true;
+  }
+
+  if (command === "/monthly") {
+    const month = /^\d{4}-\d{2}$/.test(args) ? args : currentMonth();
+    await sendMessage(chatId, [
+      `<b>${month} автомат есеп тесті</b>`,
+      "",
+      reportText(data, month),
+    ].join("\n"));
     return true;
   }
 
@@ -756,6 +788,17 @@ async function handleCallback(callback) {
   if (dataValue.startsWith("employee:archive:") || dataValue.startsWith("employee:restore:")) {
     const [, action, id] = dataValue.split(":");
     if (data.employees[id]) data.employees[id].status = action === "archive" ? "archived" : "active";
+    if (data.employees[id]) {
+      data.history.push({
+        at: new Date().toISOString(),
+        action: action === "archive" ? "Архивке жіберілді" : "Архивтен қайтарылды",
+        employeeId: id,
+        name: data.employees[id].name,
+        date: "",
+        oldLabel: action === "archive" ? "Белсенді" : "Архив",
+        newLabel: action === "archive" ? "Архив" : "Белсенді",
+      });
+    }
     await saveData(data);
     await editMessage(chatId, messageId, employeeView(data, id), { reply_markup: employeeButtons(id, data.employees[id]) });
     return;
@@ -939,7 +982,7 @@ async function googleSheetsFetch(pathname, options = {}) {
 async function ensureSheets() {
   const spreadsheet = await googleSheetsFetch("?fields=sheets.properties.title");
   const existing = new Set(spreadsheet.sheets.map((sheet) => sheet.properties.title));
-  const needed = ["Employees", "Attendance", "Summary"];
+  const needed = ["Employees", "Attendance", "Daily Control", "Summary", "History"];
   const requests = needed
     .filter((title) => !existing.has(title))
     .map((title) => ({ addSheet: { properties: { title } } }));
@@ -993,6 +1036,22 @@ async function syncGoogleSheets(data) {
     }
   }
 
+  const daily = [["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"]];
+  const dailyDates = new Set(Object.keys(data.attendance));
+  dailyDates.add(today());
+  for (const date of [...dailyDates].sort()) {
+    const summary = daySummary(data, date);
+    daily.push([
+      date,
+      summary.counts.present || 0,
+      summary.counts.half || 0,
+      summary.counts.absent || 0,
+      summary.counts.dayoff || 0,
+      summary.total - summary.marked,
+      summary.total,
+    ]);
+  }
+
   const summary = [["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"]];
   const months = new Set(Object.keys(data.attendance).map((date) => date.slice(0, 7)));
   months.add(currentMonth());
@@ -1018,16 +1077,76 @@ async function syncGoogleSheets(data) {
     }
   }
 
+  const history = [
+    ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"],
+    ...(data.history || []).map((row) => [
+      row.at,
+      row.action,
+      row.employeeId,
+      row.name,
+      row.date,
+      row.oldLabel || "",
+      row.newLabel || "",
+    ]),
+  ];
+
   await updateSheetRange("Employees!A1:F1000", employees);
   await updateSheetRange("Attendance!A1:G5000", attendance);
+  await updateSheetRange("Daily Control!A1:G2000", daily);
   await updateSheetRange("Summary!A1:I2000", summary);
-  data.sheetSync = { at: new Date().toISOString(), rows: { employees: employees.length - 1, attendance: attendance.length - 1, summary: summary.length - 1 } };
+  await updateSheetRange("History!A1:G5000", history);
+  data.sheetSync = {
+    at: new Date().toISOString(),
+    rows: {
+      employees: employees.length - 1,
+      attendance: attendance.length - 1,
+      daily: daily.length - 1,
+      summary: summary.length - 1,
+      history: history.length - 1,
+    },
+  };
+  await saveData(data, { syncSheets: false });
+}
+
+function localDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+
+async function sendMonthlyReportsIfDue() {
+  const parts = localDateParts();
+  if (parts.day !== "30" || parts.hour !== "09" || parts.minute !== "00") return;
+  const month = `${parts.year}-${parts.month}`;
+  const data = await loadData();
+  if (data.monthlyReportSent === month) return;
+  const text = [
+    `<b>${month} автомат табель есебі</b>`,
+    "Айдың 30-күні 09:00 есебі:",
+    "",
+    reportText(data, month),
+  ].join("\n");
+  for (const adminId of ADMIN_IDS) {
+    await sendMessage(adminId, text);
+  }
+  data.monthlyReportSent = month;
   await saveData(data, { syncSheets: false });
 }
 
 async function poll() {
   let offset = 0;
   console.log(`Бот іске қосылды: ${BOT_VERSION}. Уақыт белдеуі: ${TIME_ZONE}`);
+  setInterval(() => {
+    sendMonthlyReportsIfDue().catch((error) => console.error(`Monthly report failed: ${error.message}`));
+  }, 60_000);
+  sendMonthlyReportsIfDue().catch((error) => console.error(`Monthly report failed: ${error.message}`));
 
   while (true) {
     try {

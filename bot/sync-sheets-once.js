@@ -95,7 +95,7 @@ async function googleSheetsFetch(pathname, options = {}) {
 async function ensureSheets() {
   const spreadsheet = await googleSheetsFetch("?fields=sheets.properties.title");
   const existing = new Set(spreadsheet.sheets.map((sheet) => sheet.properties.title));
-  const requests = ["Employees", "Attendance", "Summary"]
+  const requests = ["Employees", "Attendance", "Daily Control", "Summary", "History"]
     .filter((title) => !existing.has(title))
     .map((title) => ({ addSheet: { properties: { title } } }));
   if (requests.length) await googleSheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
@@ -132,6 +132,21 @@ function statusCounts(data, employeeId, month) {
   return counts;
 }
 
+function activeEmployees(data) {
+  return allEmployees(data).filter(([, employee]) => employee.status !== "archived");
+}
+
+function dayControl(data, date) {
+  const counts = { present: 0, half: 0, absent: 0, dayoff: 0, unmarked: 0 };
+  const records = data.attendance?.[date] || {};
+  for (const [id] of activeEmployees(data)) {
+    const status = records[id]?.status;
+    if (counts[status] !== undefined) counts[status] += 1;
+    else counts.unmarked += 1;
+  }
+  return { ...counts, total: activeEmployees(data).length };
+}
+
 async function main() {
   if (!SHEET_ID || !GOOGLE_CLIENT_EMAIL || !GOOGLE_PRIVATE_KEY) throw new Error("Google Sheets config толық емес.");
   const data = JSON.parse(readFileSync(DATA_PATH, "utf8"));
@@ -165,6 +180,12 @@ async function main() {
     }
   }
 
+  const daily = [["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"]];
+  for (const date of Object.keys(data.attendance || {}).sort()) {
+    const counts = dayControl(data, date);
+    daily.push([date, counts.present, counts.half, counts.absent, counts.dayoff, counts.unmarked, counts.total]);
+  }
+
   const summary = [["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"]];
   const months = new Set(Object.keys(data.attendance || {}).map((date) => date.slice(0, 7)));
   for (const month of [...months].sort()) {
@@ -184,10 +205,25 @@ async function main() {
     }
   }
 
+  const history = [
+    ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"],
+    ...(data.history || []).map((row) => [
+      row.at,
+      row.action,
+      row.employeeId,
+      row.name,
+      row.date,
+      row.oldLabel || "",
+      row.newLabel || "",
+    ]),
+  ];
+
   await updateSheetRange("Employees!A1:F1000", employees);
   await updateSheetRange("Attendance!A1:G5000", attendance);
+  await updateSheetRange("Daily Control!A1:G2000", daily);
   await updateSheetRange("Summary!A1:I2000", summary);
-  console.log(`Synced: employees=${employees.length - 1}, attendance=${attendance.length - 1}, summary=${summary.length - 1}`);
+  await updateSheetRange("History!A1:G5000", history);
+  console.log(`Synced: employees=${employees.length - 1}, attendance=${attendance.length - 1}, daily=${daily.length - 1}, summary=${summary.length - 1}, history=${history.length - 1}`);
 }
 
 main().catch((error) => {
