@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="kk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Табель бот preview</title>
+    <style>
+      :root {
+        font-family: Inter, Segoe UI, Arial, sans-serif;
+        color: #eef6ff;
+        background: #0f1720;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0d141c, #172636);
+      }
+
+      main {
+        width: min(1120px, calc(100vw - 28px));
+        margin: 28px auto;
+        display: grid;
+        grid-template-columns: 270px 1fr 280px;
+        gap: 16px;
+      }
+
+      section {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(26, 39, 54, 0.9);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      header {
+        padding: 14px 16px;
+        background: #213247;
+        font-weight: 800;
+      }
+
+      .body {
+        padding: 14px;
+      }
+
+      button {
+        width: 100%;
+        min-height: 42px;
+        margin: 0 0 8px;
+        border: 0;
+        border-radius: 8px;
+        background: #2c76bf;
+        color: #fff;
+        font-weight: 750;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: #31465e;
+      }
+
+      button.status {
+        text-align: left;
+        padding-left: 14px;
+      }
+
+      .employee {
+        background: #26384c;
+        text-align: left;
+        padding-left: 14px;
+      }
+
+      .employee.active {
+        outline: 2px solid #64b5ff;
+      }
+
+      .calendar {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(44px, 1fr));
+        gap: 8px;
+      }
+
+      .day,
+      .weekday {
+        min-height: 46px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        background: #223246;
+      }
+
+      .weekday {
+        min-height: 28px;
+        color: #9fb5cc;
+        background: transparent;
+        font-size: 13px;
+      }
+
+      .present {
+        background: #18744f;
+      }
+
+      .half {
+        background: #9a711a;
+      }
+
+      .absent {
+        background: #7f3030;
+      }
+
+      .empty {
+        opacity: 0.3;
+      }
+
+      h1,
+      h2,
+      p {
+        margin-top: 0;
+      }
+
+      p {
+        color: #bdd0e5;
+        line-height: 1.5;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .metric {
+        padding: 12px;
+        border-radius: 8px;
+        background: #203044;
+      }
+
+      .metric b {
+        display: block;
+        margin-top: 4px;
+        font-size: 20px;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <header>Қызметкерлер</header>
+        <div class="body">
+          <button class="employee active" onclick="selectEmployee('Айбек Нұрлан', 15000)">Айбек Нұрлан<br />15 000 тг</button>
+          <button class="employee" onclick="selectEmployee('Дана Ермек', 12000)">Дана Ермек<br />12 000 тг</button>
+          <button class="employee" onclick="selectEmployee('Ержан Али', 18000)">Ержан Али<br />18 000 тг</button>
+          <button>Қызметкер қосу</button>
+          <button class="secondary">Архив</button>
+        </div>
+      </section>
+
+      <section>
+        <header id="title">Айбек Нұрлан — жеке календарь</header>
+        <div class="body">
+          <div class="meta">
+            <div class="metric">Ставка<b id="rate">15 000</b></div>
+            <div class="metric">Күн<b id="days">18.5</b></div>
+            <div class="metric">Айлық<b id="salary">277 500</b></div>
+          </div>
+          <div class="calendar" id="calendar"></div>
+        </div>
+      </section>
+
+      <section>
+        <header>Белгі қою</header>
+        <div class="body">
+          <p id="selected">Таңдалған күн: 2026-05-02</p>
+          <button class="status present" onclick="mark('Жұмыста')">Жұмыста</button>
+          <button class="status half" onclick="mark('Жарты күн')">Жарты күн</button>
+          <button class="status absent" onclick="mark('Жоқ')">Жоқ</button>
+          <button class="status secondary" onclick="mark('Демалыс')">Демалыс</button>
+          <button class="secondary">Google Sheets sync</button>
+          <p>
+            Белгілер Google Sheets ішіндегі Employees, Attendance, Reports парақтарына жазылады.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      let selectedDay = 2;
+      let employee = "Айбек Нұрлан";
+      let rate = 15000;
+      const marks = { 1: "present", 2: "present", 3: "half", 8: "absent", 12: "present", 13: "present" };
+
+      function renderCalendar() {
+        const root = document.getElementById("calendar");
+        root.innerHTML = "";
+        ["Дс", "Сс", "Ср", "Бс", "Жм", "Сб", "Жк"].forEach((d) => root.insertAdjacentHTML("beforeend", `<div class="weekday">${d}</div>`));
+        for (let i = 0; i < 4; i += 1) root.insertAdjacentHTML("beforeend", `<div class="day empty"></div>`);
+        for (let d = 1; d <= 31; d += 1) {
+          root.insertAdjacentHTML("beforeend", `<button class="day ${marks[d] || ""}" onclick="pick(${d})">${marks[d] ? "✓ " : ""}${d}</button>`);
+        }
+      }
+
+      function pick(day) {
+        selectedDay = day;
+        document.getElementById("selected").textContent = `Таңдалған күн: 2026-05-${String(day).padStart(2, "0")}`;
+      }
+
+      function mark(label) {
+        marks[selectedDay] = label === "Жарты күн" ? "half" : label === "Жоқ" ? "absent" : "present";
+        renderCalendar();
+      }
+
+      function selectEmployee(name, newRate) {
+        employee = name;
+        rate = newRate;
+        document.getElementById("title").textContent = `${name} — жеке календарь`;
+        document.getElementById("rate").textContent = newRate.toLocaleString("kk-KZ");
+        document.getElementById("salary").textContent = Math.round(newRate * 18.5).toLocaleString("kk-KZ");
+      }
+
+      renderCalendar();
+    </script>
+  </body>
+</html>

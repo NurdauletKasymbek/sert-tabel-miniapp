@@ -1,0 +1,39 @@
+GOOGLE SHEETS API ҚОСУ ҚЫСҚА НҰСҚАУЛЫҚ
+
+1) Google Cloud Console ашыңыз:
+   https://console.cloud.google.com/
+
+2) Project таңдаңыз немесе жаңасын жасаңыз.
+
+3) APIs & Services -> Library:
+   - Google Sheets API -> Enable
+
+4) APIs & Services -> Credentials:
+   Create credentials -> Service account
+
+5) Service account ішінен:
+   Keys -> Add key -> Create new key -> JSON
+
+6) Түскен JSON файлды мына атпен сақтаңыз:
+   C:\Users\User\zhel\bot\google-service-account.json
+
+7) JSON ішіндегі client_email мәнін көшіріңіз.
+   Мысалы:
+   tabel-bot@project-id.iam.gserviceaccount.com
+
+8) Google Sheet файлын ашыңыз:
+   Share -> service account email -> Editor
+   Sheet URL ішіндегі ID-ды bot\.env ішіне қойыңыз:
+   GOOGLE_SHEET_ID=...
+
+9) bot\.env ішінде мына жол болсын:
+   GOOGLE_SERVICE_ACCOUNT_JSON=bot/google-service-account.json
+
+10) Тексеру:
+   npm run check:google
+
+11) Ботты қайта қосыңыз:
+   RUN_BOT.bat
+
+Telegram ботта:
+- Google Sheets кнопкасын басыңыз

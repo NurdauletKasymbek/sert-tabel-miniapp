@@ -1,0 +1,8 @@
+node_modules/
+dist/
+bot/data.json
+bot/data.json.tmp
+bot/.env
+bot/google-service-account.json
+*service-account*.json
+.env
