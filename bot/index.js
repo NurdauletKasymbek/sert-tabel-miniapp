@@ -575,15 +575,17 @@ async function handlePendingText(message, data, session, text) {
   const userId = String(message.from.id);
 
   if (session.action === "addEmployee") {
-    const match = text.match(/^(.+?)(?:\s*\|\s*(\d+))?$/);
+    const match = text.match(/^(.+?)(?:\s*\|\s*(.+))?$/);
     if (!match) {
-      await sendMessage(chatId, "Формат: Аты-жөні | күндік ставка");
+      await sendMessage(chatId, "Формат: Аты-жөні | рөлі");
       return true;
     }
     const id = nextEmployeeId(data);
+    const role = String(match[2] || "Қызметкер").trim() || "Қызметкер";
     data.employees[id] = {
       name: match[1].trim(),
-      dailyRate: Number(match[2] || 0),
+      role,
+      dailyRate: 0,
       status: "active",
       createdAt: new Date().toISOString(),
     };
@@ -597,19 +599,19 @@ async function handlePendingText(message, data, session, text) {
       newLabel: "Белсенді",
     });
     clearSession(data, userId);
-    await saveData(data);
-    let syncText = "";
+    await saveData(data, { syncSheets: false });
+    let syncText = "\nGoogle Sheets қосылмаған: .env ішіндегі GOOGLE_* мәндерін тексеріңіз.";
     if (sheetsConfigured()) {
       try {
-        await syncGoogleSheets(data);
-        syncText = "\nGoogle Sheets жаңартылды.";
+        await appendEmployeeToGoogleSheets(id, data.employees[id]);
+        syncText = "\nGoogle Sheets жазылды: Employees парағына қосылды.";
       } catch (error) {
         syncText = `\nGoogle Sheets жазылмады: ${escapeHtml(error.message)}`;
       }
     }
     await sendMessage(
       chatId,
-      `Қосылды: <b>${escapeHtml(data.employees[id].name)}</b> — ${money(data.employees[id].dailyRate)}${syncText}`,
+      `Қосылды: <b>${escapeHtml(data.employees[id].name)}</b>\nРөлі: <b>${escapeHtml(role)}</b>${syncText}`,
       {
         reply_markup: inlineKeyboard([
           [{ text: "Келесі қызметкер қосу", callback_data: "employee:add" }],
@@ -766,7 +768,7 @@ async function handleCallback(callback) {
   if (dataValue === "employee:add") {
     setSession(data, userId, { action: "addEmployee" });
     await saveData(data, { syncSheets: false });
-    await editMessage(chatId, messageId, "Қызметкерді мына форматта жазыңыз:\n\n<b>Аты-жөні | күндік ставка</b>\n\nМысалы: <code>Айбек Нұрлан | 15000</code>");
+    await editMessage(chatId, messageId, "Қызметкерді мына форматта жазыңыз:\n\n<b>Аты-жөні | рөлі</b>\n\nМысалы: <code>Айбек Нұрлан | Оператор</code>\n\nОсылай қосқанда адам бірден Google Sheets ішіндегі Employees парағына жазылады.");
     return;
   }
 
@@ -1004,6 +1006,52 @@ async function updateSheetRange(range, values) {
     method: "PUT",
     body: JSON.stringify({ range, majorDimension: "ROWS", values }),
   });
+}
+
+async function getSheetValues(range) {
+  const result = await googleSheetsFetch(`/values/${encodeURIComponent(range)}`);
+  return result.values || [];
+}
+
+async function appendSheetRows(range, values) {
+  await googleSheetsFetch(`/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+    method: "POST",
+    body: JSON.stringify({ range, majorDimension: "ROWS", values }),
+  });
+}
+
+async function ensureEmployeeSheetHeader() {
+  await ensureSheets();
+  const values = await getSheetValues("Employees!A1:F1");
+  if (!values.length || values[0]?.[0] !== "ID") {
+    await updateSheetRange("Employees!A1:F1", [["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні"]]);
+  }
+  const historyValues = await getSheetValues("History!A1:G1");
+  if (!historyValues.length || historyValues[0]?.[0] !== "Уақыт") {
+    await updateSheetRange("History!A1:G1", [["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"]]);
+  }
+}
+
+async function appendEmployeeToGoogleSheets(employeeId, employee) {
+  if (!sheetsConfigured()) throw new Error("Google Sheets қосылмаған. .env ішіндегі GOOGLE_* мәндерін тексеріңіз.");
+  await ensureEmployeeSheetHeader();
+  const employeeRows = await getSheetValues("Employees!A2:F5000");
+  const existingIndex = employeeRows.findIndex((row) => row[0] === employeeId);
+  const row = [
+    employeeId,
+    employee.name,
+    employee.role || "Қызметкер",
+    employee.status === "archived" ? "Архив" : "Белсенді",
+    employee.createdAt || "",
+    employee.archivedAt || "",
+  ];
+  if (existingIndex >= 0) {
+    const line = existingIndex + 2;
+    await updateSheetRange(`Employees!A${line}:F${line}`, [row]);
+  } else {
+    await appendSheetRows("Employees!A:F", [row]);
+  }
+  await appendSheetRows("History!A:G", [[new Date().toISOString(), "Қызметкер қосылды", employeeId, employee.name, "", "", "Белсенді"]]);
 }
 
 async function syncGoogleSheets(data) {
