@@ -18,15 +18,19 @@ function env(name) {
 }
 
 function sheetId() {
-  return env("GOOGLE_SHEET_ID");
+  return env("GOOGLE_SHEET_ID").trim();
 }
 
 function serviceEmail() {
-  return env("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  return env("GOOGLE_SERVICE_ACCOUNT_EMAIL").trim();
 }
 
 function privateKey() {
-  return env("GOOGLE_PRIVATE_KEY").replaceAll("\\n", "\n");
+  const value = env("GOOGLE_PRIVATE_KEY").trim();
+  const unquoted = (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
+    ? value.slice(1, -1)
+    : value;
+  return unquoted.replaceAll("\\n", "\n");
 }
 
 function base64url(value) {
@@ -37,7 +41,12 @@ let tokenCache = null;
 
 async function getGoogleAccessToken() {
   if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) return tokenCache.token;
-  if (!sheetId() || !serviceEmail() || !privateKey()) throw new Error("Google Sheets env толық емес.");
+  const missing = [
+    !sheetId() && "GOOGLE_SHEET_ID",
+    !serviceEmail() && "GOOGLE_SERVICE_ACCOUNT_EMAIL",
+    !privateKey() && "GOOGLE_PRIVATE_KEY",
+  ].filter(Boolean);
+  if (missing.length) throw new Error(`Vercel Environment Variables толық емес: ${missing.join(", ")}`);
 
   const now = Math.floor(Date.now() / 1000);
   const unsigned = `${base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${base64url(JSON.stringify({

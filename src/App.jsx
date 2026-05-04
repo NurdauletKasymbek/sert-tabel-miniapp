@@ -132,6 +132,7 @@ function App() {
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState("");
   const [savingEmployee, setSavingEmployee] = useState(false);
+  const [addError, setAddError] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [archiveOpen, setArchiveOpen] = useState(false);
 
@@ -182,6 +183,7 @@ function App() {
 
   async function addEmployee() {
     if (!newName.trim() || savingEmployee) return;
+    setAddError("");
     try {
       setSavingEmployee(true);
       const name = newName.trim();
@@ -197,7 +199,9 @@ function App() {
       setAddOpen(false);
       showNotice("success", `${name} базаға сақталды және Google Sheets жаңарды.`);
     } catch (err) {
-      showNotice("error", `Сақталмады: ${err.message}`);
+      const message = `Сақталмады: ${err.message}`;
+      setAddError(message);
+      showNotice("error", message);
     } finally {
       setSavingEmployee(false);
     }
@@ -318,7 +322,7 @@ function App() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button onClick={() => setAddOpen(true)} className="primary-round" aria-label="Қызметкер қосу">
+            <button onClick={() => { setAddError(""); setAddOpen(true); }} className="primary-round" aria-label="Қызметкер қосу">
               <Plus className="size-5" />
             </button>
           </div>
@@ -389,7 +393,7 @@ function App() {
                   <UsersRound className="size-8" />
                 </div>
                 <p className="mt-4 text-xl font-black">Қызметкер жоқ</p>
-                <button onClick={() => setAddOpen(true)} className="mt-4 rounded-2xl bg-[#0b1b5f] px-5 py-3 text-sm font-black text-white">
+                <button onClick={() => { setAddError(""); setAddOpen(true); }} className="mt-4 rounded-2xl bg-[#0b1b5f] px-5 py-3 text-sm font-black text-white">
                   Бірінші қызметкерді қосу
                 </button>
               </div>
@@ -472,6 +476,7 @@ function App() {
 
       {addOpen && (
         <Modal title="Қызметкер қосу" onClose={() => setAddOpen(false)}>
+          {addError && <div className="mb-3"><Notice type="error" text={addError} /></div>}
           <label className="mb-3 block">
             <span className="form-label">Аты-жөні</span>
             <input value={newName} onChange={(event) => setNewName(event.target.value)} className="form-input" placeholder="Мысалы: Айбек Нұрлан" />
