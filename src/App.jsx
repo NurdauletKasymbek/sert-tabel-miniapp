@@ -135,6 +135,7 @@ function App() {
   const [addError, setAddError] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [reportState, setReportState] = useState("ready");
 
   useEffect(() => {
     loadState();
@@ -275,6 +276,22 @@ function App() {
     } catch (err) {
       showNotice("error", err.message);
       setSyncState("ready");
+    }
+  }
+
+  async function sendManagerReport() {
+    setReportState("sending");
+    try {
+      const result = await api("/api/report-manager", {
+        method: "POST",
+        body: JSON.stringify({ date: selectedDate }),
+      });
+      setReportState("sent");
+      showNotice("success", `Есеп басшылыққа жіберілді: ${result.sentTo} адам.`);
+      setTimeout(() => setReportState("ready"), 2400);
+    } catch (err) {
+      showNotice("error", err.message);
+      setReportState("ready");
     }
   }
 
@@ -470,6 +487,10 @@ function App() {
                 {syncState === "syncing" ? <Clock3 className="size-5 animate-spin" /> : syncState === "done" ? <Check className="size-5" /> : <FileSpreadsheet className="size-5" />}
               </button>
             </div>
+            <button onClick={sendManagerReport} disabled={reportState === "sending"} className="mt-2 flex w-full items-center justify-center gap-2 rounded-[20px] bg-gradient-to-br from-[#112b88] to-[#07133a] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-60">
+              {reportState === "sending" ? <Clock3 className="size-5 animate-spin" /> : reportState === "sent" ? <Check className="size-5" /> : <Sparkles className="size-5" />}
+              Басшылыққа есеп беру
+            </button>
           </section>
         </section>
       </section>

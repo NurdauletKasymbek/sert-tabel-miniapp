@@ -383,6 +383,70 @@ export function statusCounts(attendanceMap, employeeId, month) {
   return counts;
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+export function buildManagerReport(store, date) {
+  const state = publicState(store);
+  const reportDate = /^\d{4}-\d{2}-\d{2}$/.test(date || "") ? date : state.today;
+  const attendanceMap = state.attendance || {};
+  const records = attendanceMap[reportDate] || {};
+  const employees = state.employees || [];
+  const grouped = { present: [], half: [], absent: [], dayoff: [], unmarked: [] };
+
+  for (const employee of employees) {
+    const status = records[employee.id]?.status;
+    if (grouped[status]) grouped[status].push(employee.name);
+    else grouped.unmarked.push(employee.name);
+  }
+
+  const counts = dayControl(attendanceMap, employees, reportDate);
+  const month = reportDate.slice(0, 7);
+  const monthTotals = employees.reduce((totals, employee) => {
+    const employeeCounts = statusCounts(attendanceMap, employee.id, month);
+    for (const key of Object.keys(totals)) totals[key] += employeeCounts[key] || 0;
+    return totals;
+  }, { present: 0, half: 0, absent: 0, dayoff: 0 });
+
+  const lines = [
+    "<b>Sert табель есебі</b>",
+    `Күн: <b>${reportDate}</b>`,
+    "",
+    `Барлығы: <b>${counts.total}</b>`,
+    `Белгіленді: <b>${counts.total - counts.unmarked}/${counts.total}</b>`,
+    `Жұмыста: <b>${counts.present}</b>`,
+    `Жарты күн: <b>${counts.half}</b>`,
+    `Жоқ: <b>${counts.absent}</b>`,
+    `Демалыс: <b>${counts.dayoff}</b>`,
+    `Белгі жоқ: <b>${counts.unmarked}</b>`,
+    "",
+    `<b>${month} айлық қысқа есеп</b>`,
+    `Жұмыста: <b>${monthTotals.present}</b>`,
+    `Жарты күн: <b>${monthTotals.half}</b>`,
+    `Жоқ: <b>${monthTotals.absent}</b>`,
+    `Демалыс: <b>${monthTotals.dayoff}</b>`,
+  ];
+
+  const sections = [
+    ["Жұмыста", grouped.present],
+    ["Жарты күн", grouped.half],
+    ["Жоқ", grouped.absent],
+    ["Демалыс", grouped.dayoff],
+    ["Белгі қойылмаған", grouped.unmarked],
+  ];
+  for (const [title, names] of sections) {
+    if (!names.length) continue;
+    lines.push("", `<b>${title}</b>`);
+    lines.push(...names.map((name) => `- ${escapeHtml(name)}`));
+  }
+
+  return { text: lines.join("\n"), counts, grouped, date: reportDate };
+}
+
 export function nextEmployeeId(employees) {
   const max = employees.reduce((highest, employee) => {
     const number = Number(String(employee.id || "").replace("emp_", ""));
