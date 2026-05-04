@@ -32,6 +32,42 @@ function cleanEnvValue(value, name) {
   return cleaned;
 }
 
+function normalizeBase64(value) {
+  const normalized = value.replace(/\s/g, "").replaceAll("-", "+").replaceAll("_", "/");
+  return normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+}
+
+export function googleConfigDiagnostics() {
+  const raw = env("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
+  const value = cleanEnvValue(raw, "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
+  const info = {
+    hasSheetId: Boolean(sheetId()),
+    hasServiceEmail: Boolean(env("GOOGLE_SERVICE_ACCOUNT_EMAIL").trim()),
+    hasJsonBase64: Boolean(value),
+    jsonBase64Length: value.length,
+    looksLikeRawJson: value.startsWith("{"),
+    looksLikeBase64Json: value.startsWith("ewog") || value.startsWith("eyJ"),
+    decodedLooksLikeJson: false,
+    hasClientEmail: false,
+    hasPrivateKey: false,
+    ok: false,
+  };
+  if (!value) return info;
+  try {
+    const jsonText = value.startsWith("{")
+      ? value
+      : Buffer.from(normalizeBase64(value), "base64").toString("utf8").trim();
+    info.decodedLooksLikeJson = jsonText.startsWith("{");
+    const account = JSON.parse(cleanEnvValue(jsonText, "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"));
+    info.hasClientEmail = Boolean(account?.client_email);
+    info.hasPrivateKey = Boolean(account?.private_key);
+    info.ok = info.hasClientEmail && info.hasPrivateKey;
+    return info;
+  } catch {
+    return info;
+  }
+}
+
 function serviceAccountFromBase64() {
   if (serviceAccountCache !== undefined) return serviceAccountCache;
   const value = cleanEnvValue(env("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"), "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
@@ -39,13 +75,14 @@ function serviceAccountFromBase64() {
   try {
     const jsonText = value.startsWith("{")
       ? value
-      : Buffer.from(value.replace(/\s/g, ""), "base64").toString("utf8").trim();
+      : Buffer.from(normalizeBase64(value), "base64").toString("utf8").trim();
     const account = JSON.parse(cleanEnvValue(jsonText, "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"));
     if (!account?.client_email || !account?.private_key) throw new Error("missing_fields");
     serviceAccountCache = account;
     return serviceAccountCache;
   } catch {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 форматы қате. JSON файлды Base64 қылып толық қойыңыз.");
+    const info = googleConfigDiagnostics();
+    throw new Error(`GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 форматы қате. Ұзындығы: ${info.jsonBase64Length}. Base64 JSON сияқты ма: ${info.looksLikeBase64Json ? "иә" : "жоқ"}. Decode JSON болды ма: ${info.decodedLooksLikeJson ? "иә" : "жоқ"}.`);
   }
 }
 
