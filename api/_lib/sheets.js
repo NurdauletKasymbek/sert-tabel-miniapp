@@ -206,11 +206,13 @@ async function ensureSheets() {
   let sheets = spreadsheet.sheets.map((sheet) => sheet.properties);
   const titles = new Set(sheets.map((sheet) => sheet.title));
   const requests = [];
+  const renamedSheetIds = new Set();
 
   for (const [legacyTitle, newTitle] of Object.entries(LEGACY_SHEETS)) {
     if (titles.has(legacyTitle) && !titles.has(newTitle)) {
       const legacySheet = sheets.find((sheet) => sheet.title === legacyTitle);
       requests.push({ updateSheetProperties: { properties: { sheetId: legacySheet.sheetId, title: newTitle, hidden: HIDDEN_SHEETS.has(newTitle) }, fields: "title,hidden" } });
+      renamedSheetIds.add(legacySheet.sheetId);
       titles.delete(legacyTitle);
       titles.add(newTitle);
     }
@@ -224,7 +226,7 @@ async function ensureSheets() {
   }
 
   for (const sheet of sheets) {
-    if (HIDDEN_SHEETS.has(sheet.title) && !sheet.hidden) {
+    if (!renamedSheetIds.has(sheet.sheetId) && HIDDEN_SHEETS.has(sheet.title) && !sheet.hidden) {
       requests.push({ updateSheetProperties: { properties: { sheetId: sheet.sheetId, hidden: true }, fields: "hidden" } });
     }
   }
