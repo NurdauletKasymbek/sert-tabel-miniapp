@@ -37,6 +37,10 @@ function privateKey() {
     .replaceAll("\\n", "\n")
     .replaceAll("-----BEGIN_PRIVATE_KEY-----", "-----BEGIN PRIVATE KEY-----")
     .replaceAll("-----END_PRIVATE_KEY-----", "-----END PRIVATE KEY-----")
+    .replaceAll("-----BEGIN_PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----")
+    .replaceAll("-----END_PRIVATE KEY-----", "-----END PRIVATE KEY-----")
+    .replaceAll("-----BEGIN PRIVATE_KEY-----", "-----BEGIN PRIVATE KEY-----")
+    .replaceAll("-----END PRIVATE_KEY-----", "-----END PRIVATE KEY-----")
     .replaceAll("-----BEGIN PRIVATE_KEY-----", "-----BEGIN PRIVATE KEY-----")
     .replaceAll("-----END PRIVATE_KEY-----", "-----END PRIVATE KEY-----");
 
