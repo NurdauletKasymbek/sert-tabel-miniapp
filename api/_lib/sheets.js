@@ -21,11 +21,24 @@ function sheetId() {
   return env("GOOGLE_SHEET_ID").trim();
 }
 
+function serviceAccountFromBase64() {
+  const value = env("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64").trim();
+  if (!value) return null;
+  try {
+    return JSON.parse(Buffer.from(value, "base64").toString("utf8"));
+  } catch {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 форматы қате. JSON файлды Base64 қылып толық қойыңыз.");
+  }
+}
+
 function serviceEmail() {
-  return env("GOOGLE_SERVICE_ACCOUNT_EMAIL").trim();
+  return serviceAccountFromBase64()?.client_email || env("GOOGLE_SERVICE_ACCOUNT_EMAIL").trim();
 }
 
 function privateKey() {
+  const jsonKey = serviceAccountFromBase64()?.private_key;
+  if (jsonKey) return jsonKey;
+
   const value = env("GOOGLE_PRIVATE_KEY").trim();
   const withoutPrefix = value.startsWith("GOOGLE_PRIVATE_KEY=")
     ? value.slice("GOOGLE_PRIVATE_KEY=".length).trim()
@@ -63,8 +76,8 @@ async function getGoogleAccessToken() {
   if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) return tokenCache.token;
   const missing = [
     !sheetId() && "GOOGLE_SHEET_ID",
-    !serviceEmail() && "GOOGLE_SERVICE_ACCOUNT_EMAIL",
-    !privateKey() && "GOOGLE_PRIVATE_KEY",
+    !serviceEmail() && "GOOGLE_SERVICE_ACCOUNT_EMAIL немесе GOOGLE_SERVICE_ACCOUNT_JSON_BASE64",
+    !privateKey() && "GOOGLE_PRIVATE_KEY немесе GOOGLE_SERVICE_ACCOUNT_JSON_BASE64",
   ].filter(Boolean);
   if (missing.length) throw new Error(`Vercel Environment Variables толық емес: ${missing.join(", ")}`);
 
