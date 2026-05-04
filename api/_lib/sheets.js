@@ -21,11 +21,29 @@ function sheetId() {
   return env("GOOGLE_SHEET_ID").trim();
 }
 
+let serviceAccountCache;
+
+function cleanEnvValue(value, name) {
+  let cleaned = String(value || "").trim();
+  if (cleaned.startsWith(`${name}=`)) cleaned = cleaned.slice(name.length + 1).trim();
+  if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
+
 function serviceAccountFromBase64() {
-  const value = env("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64").trim();
+  if (serviceAccountCache !== undefined) return serviceAccountCache;
+  const value = cleanEnvValue(env("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"), "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
   if (!value) return null;
   try {
-    return JSON.parse(Buffer.from(value, "base64").toString("utf8"));
+    const jsonText = value.startsWith("{")
+      ? value
+      : Buffer.from(value.replace(/\s/g, ""), "base64").toString("utf8").trim();
+    const account = JSON.parse(cleanEnvValue(jsonText, "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"));
+    if (!account?.client_email || !account?.private_key) throw new Error("missing_fields");
+    serviceAccountCache = account;
+    return serviceAccountCache;
   } catch {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 форматы қате. JSON файлды Base64 қылып толық қойыңыз.");
   }
