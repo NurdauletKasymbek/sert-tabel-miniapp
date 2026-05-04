@@ -13,6 +13,23 @@ const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Р
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
 
+const SHEETS = {
+  employees: "Қызметкерлер",
+  attendance: "Табель",
+  reports: "Есеп",
+  history: "Журнал",
+};
+
+const LEGACY_SHEETS = {
+  Employees: SHEETS.employees,
+  Attendance: SHEETS.attendance,
+  Reports: SHEETS.reports,
+  Summary: SHEETS.reports,
+  History: SHEETS.history,
+};
+
+const HIDDEN_SHEETS = new Set([SHEETS.history, "Daily Control", "Summary", "Reports", "Employees", "Attendance", "History"]);
+
 function env(name) {
   return process.env[name] || "";
 }
@@ -180,19 +197,44 @@ async function sheetsFetch(pathname, options = {}) {
   return result;
 }
 
+function a1(sheetName, cellRange) {
+  return `'${sheetName.replaceAll("'", "''")}'!${cellRange}`;
+}
+
 async function ensureSheets() {
-  const spreadsheet = await sheetsFetch("?fields=sheets.properties.title");
-  const existing = new Set(spreadsheet.sheets.map((sheet) => sheet.properties.title));
-  const requests = ["Employees", "Attendance", "Daily Control", "Summary", "History"]
-    .filter((title) => !existing.has(title))
-    .map((title) => ({ addSheet: { properties: { title } } }));
+  let spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title,hidden)");
+  let sheets = spreadsheet.sheets.map((sheet) => sheet.properties);
+  const titles = new Set(sheets.map((sheet) => sheet.title));
+  const requests = [];
+
+  for (const [legacyTitle, newTitle] of Object.entries(LEGACY_SHEETS)) {
+    if (titles.has(legacyTitle) && !titles.has(newTitle)) {
+      const legacySheet = sheets.find((sheet) => sheet.title === legacyTitle);
+      requests.push({ updateSheetProperties: { properties: { sheetId: legacySheet.sheetId, title: newTitle, hidden: HIDDEN_SHEETS.has(newTitle) }, fields: "title,hidden" } });
+      titles.delete(legacyTitle);
+      titles.add(newTitle);
+    }
+  }
+
+  for (const title of Object.values(SHEETS)) {
+    if (!titles.has(title)) {
+      requests.push({ addSheet: { properties: { title, hidden: HIDDEN_SHEETS.has(title) } } });
+      titles.add(title);
+    }
+  }
+
+  for (const sheet of sheets) {
+    if (HIDDEN_SHEETS.has(sheet.title) && !sheet.hidden) {
+      requests.push({ updateSheetProperties: { properties: { sheetId: sheet.sheetId, hidden: true }, fields: "hidden" } });
+    }
+  }
+
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 
-  await ensureHeader("Employees!A1:F1", EMPLOYEE_HEADERS);
-  await ensureHeader("Attendance!A1:G1", ATTENDANCE_HEADERS);
-  await ensureHeader("Daily Control!A1:G1", DAILY_HEADERS);
-  await ensureHeader("Summary!A1:I1", SUMMARY_HEADERS);
-  await ensureHeader("History!A1:G1", HISTORY_HEADERS);
+  await ensureHeader(a1(SHEETS.employees, "A1:F1"), EMPLOYEE_HEADERS);
+  await ensureHeader(a1(SHEETS.attendance, "A1:G1"), ATTENDANCE_HEADERS);
+  await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
+  await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
 }
 
 async function ensureHeader(range, headers) {
@@ -263,9 +305,9 @@ function statusToLabel(status) {
 export async function loadStore() {
   await ensureSheets();
   const [employeeRows, attendanceRows, historyRows] = await Promise.all([
-    getValues("Employees!A2:F1000"),
-    getValues("Attendance!A2:G5000"),
-    getValues("History!A2:G5000"),
+    getValues(a1(SHEETS.employees, "A2:F1000")),
+    getValues(a1(SHEETS.attendance, "A2:G5000")),
+    getValues(a1(SHEETS.history, "A2:G5000")),
   ]);
   const employees = employeeRows.filter((row) => row[0]).map(rowToEmployee);
   const attendance = attendanceRows.filter((row) => row[0] && row[1]).map(rowToAttendance);
@@ -349,15 +391,15 @@ export function nextEmployeeId(employees) {
 
 export async function saveEmployees(employees) {
   await ensureSheets();
-  await clearRange("Employees!A2:F1000");
-  if (employees.length) await updateRange("Employees!A2:F1000", employees.map(employeeToRow));
+  await clearRange(a1(SHEETS.employees, "A2:F1000"));
+  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:F1000"), employees.map(employeeToRow));
 }
 
 export async function saveAttendance(attendance) {
   await ensureSheets();
-  await clearRange("Attendance!A2:G5000");
+  await clearRange(a1(SHEETS.attendance, "A2:G5000"));
   if (attendance.length) {
-    await updateRange("Attendance!A2:G5000", attendance.map((row) => [
+    await updateRange(a1(SHEETS.attendance, "A2:G5000"), attendance.map((row) => [
       row.date,
       row.employeeId,
       row.name,
@@ -372,8 +414,8 @@ export async function saveAttendance(attendance) {
 export async function appendHistory(rows) {
   if (!rows.length) return;
   await ensureSheets();
-  const existing = await getValues("History!A2:G5000");
-  await updateRange(`History!A${existing.length + 2}:G5000`, rows.map((row) => [
+  const existing = await getValues(a1(SHEETS.history, "A2:G5000"));
+  await updateRange(a1(SHEETS.history, `A${existing.length + 2}:G5000`), rows.map((row) => [
     row.at,
     row.action,
     row.employeeId,
@@ -389,16 +431,6 @@ export async function rebuildSummary(store) {
   const months = new Set(store.attendance.map((row) => row.date.slice(0, 7)));
   months.add(publicState(store).month);
   const employees = store.employees.sort((a, b) => a.name.localeCompare(b.name, "kk"));
-
-  const dailyRows = [DAILY_HEADERS];
-  const dates = new Set(store.attendance.map((row) => row.date));
-  dates.add(publicState(store).today);
-  for (const date of [...dates].sort()) {
-    const counts = dayControl(attendanceMap, employees.filter((employee) => employee.status !== "archived"), date);
-    dailyRows.push([date, counts.present, counts.half, counts.absent, counts.dayoff, counts.unmarked, counts.total]);
-  }
-  await clearRange("Daily Control!A1:G2000");
-  await updateRange("Daily Control!A1:G2000", dailyRows);
 
   const rows = [SUMMARY_HEADERS];
   for (const month of [...months].sort()) {
@@ -417,8 +449,8 @@ export async function rebuildSummary(store) {
       ]);
     }
   }
-  await clearRange("Summary!A1:I2000");
-  await updateRange("Summary!A1:I2000", rows);
+  await clearRange(a1(SHEETS.reports, "A1:I2000"));
+  await updateRange(a1(SHEETS.reports, "A1:I2000"), rows);
   await applyBasicFormatting();
 }
 
@@ -433,10 +465,11 @@ export function currentTime() {
 export { STATUSES, statusToLabel };
 
 async function applyBasicFormatting() {
-  const spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title)");
+  const spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title,hidden)");
   const ids = Object.fromEntries(spreadsheet.sheets.map((sheet) => [sheet.properties.title, sheet.properties.sheetId]));
+  const visibleSheets = new Set([SHEETS.employees, SHEETS.attendance, SHEETS.reports]);
   const requests = Object.entries(ids)
-    .filter(([title]) => ["Employees", "Attendance", "Daily Control", "Summary", "History"].includes(title))
+    .filter(([title]) => visibleSheets.has(title))
     .flatMap(([, sheetId]) => [
       {
         repeatCell: {
@@ -452,5 +485,10 @@ async function applyBasicFormatting() {
       },
       { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
     ]);
+  for (const [title, sheetId] of Object.entries(ids)) {
+    if (HIDDEN_SHEETS.has(title)) {
+      requests.push({ updateSheetProperties: { properties: { sheetId, hidden: true }, fields: "hidden" } });
+    }
+  }
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 }

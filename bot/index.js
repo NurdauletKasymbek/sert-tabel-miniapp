@@ -16,6 +16,20 @@ const TIME_ZONE = process.env.BOT_TIMEZONE || "Asia/Almaty";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || "";
 const MINI_APP_URL = process.env.MINI_APP_URL || "";
 const GOOGLE_SERVICE_ACCOUNT = loadGoogleServiceAccount();
+const SHEETS = {
+  employees: "Қызметкерлер",
+  attendance: "Табель",
+  reports: "Есеп",
+  history: "Журнал",
+};
+const LEGACY_SHEETS = {
+  Employees: SHEETS.employees,
+  Attendance: SHEETS.attendance,
+  Reports: SHEETS.reports,
+  Summary: SHEETS.reports,
+  History: SHEETS.history,
+};
+const HIDDEN_SHEETS = new Set([SHEETS.history, "Daily Control", "Summary", "Reports", "Employees", "Attendance", "History"]);
 const GOOGLE_CLIENT_EMAIL = cleanGoogleEmail(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) || GOOGLE_SERVICE_ACCOUNT?.client_email || "";
 const GOOGLE_PRIVATE_KEY = (cleanGooglePrivateKey(process.env.GOOGLE_PRIVATE_KEY) || GOOGLE_SERVICE_ACCOUNT?.private_key || "").replaceAll("\\n", "\n");
 const AUTO_SYNC_SHEETS = process.env.AUTO_SYNC_SHEETS === "true";
@@ -604,7 +618,7 @@ async function handlePendingText(message, data, session, text) {
     if (sheetsConfigured()) {
       try {
         await appendEmployeeToGoogleSheets(id, data.employees[id]);
-        syncText = "\nGoogle Sheets жазылды: Employees парағына қосылды.";
+        syncText = "\nGoogle Sheets жазылды: Қызметкерлер парағына қосылды.";
       } catch (error) {
         syncText = `\nGoogle Sheets жазылмады: ${escapeHtml(error.message)}`;
       }
@@ -768,7 +782,7 @@ async function handleCallback(callback) {
   if (dataValue === "employee:add") {
     setSession(data, userId, { action: "addEmployee" });
     await saveData(data, { syncSheets: false });
-    await editMessage(chatId, messageId, "Қызметкерді мына форматта жазыңыз:\n\n<b>Аты-жөні | рөлі</b>\n\nМысалы: <code>Айбек Нұрлан | Оператор</code>\n\nОсылай қосқанда адам бірден Google Sheets ішіндегі Employees парағына жазылады.");
+    await editMessage(chatId, messageId, "Қызметкерді мына форматта жазыңыз:\n\n<b>Аты-жөні | рөлі</b>\n\nМысалы: <code>Айбек Нұрлан | Оператор</code>\n\nОсылай қосқанда адам бірден Google Sheets ішіндегі Қызметкерлер парағына жазылады.");
     return;
   }
 
@@ -982,18 +996,39 @@ async function googleSheetsFetch(pathname, options = {}) {
 
 
 async function ensureSheets() {
-  const spreadsheet = await googleSheetsFetch("?fields=sheets.properties.title");
-  const existing = new Set(spreadsheet.sheets.map((sheet) => sheet.properties.title));
-  const needed = ["Employees", "Attendance", "Daily Control", "Summary", "History"];
-  const requests = needed
-    .filter((title) => !existing.has(title))
-    .map((title) => ({ addSheet: { properties: { title } } }));
+  const spreadsheet = await googleSheetsFetch("?fields=sheets.properties(sheetId,title,hidden)");
+  const sheets = spreadsheet.sheets.map((sheet) => sheet.properties);
+  const titles = new Set(sheets.map((sheet) => sheet.title));
+  const requests = [];
+  for (const [legacyTitle, newTitle] of Object.entries(LEGACY_SHEETS)) {
+    if (titles.has(legacyTitle) && !titles.has(newTitle)) {
+      const legacySheet = sheets.find((sheet) => sheet.title === legacyTitle);
+      requests.push({ updateSheetProperties: { properties: { sheetId: legacySheet.sheetId, title: newTitle, hidden: HIDDEN_SHEETS.has(newTitle) }, fields: "title,hidden" } });
+      titles.delete(legacyTitle);
+      titles.add(newTitle);
+    }
+  }
+  for (const title of Object.values(SHEETS)) {
+    if (!titles.has(title)) {
+      requests.push({ addSheet: { properties: { title, hidden: HIDDEN_SHEETS.has(title) } } });
+      titles.add(title);
+    }
+  }
+  for (const sheet of sheets) {
+    if (HIDDEN_SHEETS.has(sheet.title) && !sheet.hidden) {
+      requests.push({ updateSheetProperties: { properties: { sheetId: sheet.sheetId, hidden: true }, fields: "hidden" } });
+    }
+  }
   if (requests.length) {
     await googleSheetsFetch(":batchUpdate", {
       method: "POST",
       body: JSON.stringify({ requests }),
     });
   }
+}
+
+function sheetRange(sheetName, cellRange) {
+  return `'${sheetName.replaceAll("'", "''")}'!${cellRange}`;
 }
 
 async function updateSheetRange(range, values) {
@@ -1022,20 +1057,20 @@ async function appendSheetRows(range, values) {
 
 async function ensureEmployeeSheetHeader() {
   await ensureSheets();
-  const values = await getSheetValues("Employees!A1:F1");
+  const values = await getSheetValues(sheetRange(SHEETS.employees, "A1:F1"));
   if (!values.length || values[0]?.[0] !== "ID") {
-    await updateSheetRange("Employees!A1:F1", [["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні"]]);
+    await updateSheetRange(sheetRange(SHEETS.employees, "A1:F1"), [["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні"]]);
   }
-  const historyValues = await getSheetValues("History!A1:G1");
+  const historyValues = await getSheetValues(sheetRange(SHEETS.history, "A1:G1"));
   if (!historyValues.length || historyValues[0]?.[0] !== "Уақыт") {
-    await updateSheetRange("History!A1:G1", [["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"]]);
+    await updateSheetRange(sheetRange(SHEETS.history, "A1:G1"), [["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"]]);
   }
 }
 
 async function appendEmployeeToGoogleSheets(employeeId, employee) {
   if (!sheetsConfigured()) throw new Error("Google Sheets қосылмаған. .env ішіндегі GOOGLE_* мәндерін тексеріңіз.");
   await ensureEmployeeSheetHeader();
-  const employeeRows = await getSheetValues("Employees!A2:F5000");
+  const employeeRows = await getSheetValues(sheetRange(SHEETS.employees, "A2:F5000"));
   const existingIndex = employeeRows.findIndex((row) => row[0] === employeeId);
   const row = [
     employeeId,
@@ -1047,11 +1082,11 @@ async function appendEmployeeToGoogleSheets(employeeId, employee) {
   ];
   if (existingIndex >= 0) {
     const line = existingIndex + 2;
-    await updateSheetRange(`Employees!A${line}:F${line}`, [row]);
+    await updateSheetRange(sheetRange(SHEETS.employees, `A${line}:F${line}`), [row]);
   } else {
-    await appendSheetRows("Employees!A:F", [row]);
+    await appendSheetRows(sheetRange(SHEETS.employees, "A:F"), [row]);
   }
-  await appendSheetRows("History!A:G", [[new Date().toISOString(), "Қызметкер қосылды", employeeId, employee.name, "", "", "Белсенді"]]);
+  await appendSheetRows(sheetRange(SHEETS.history, "A:G"), [[new Date().toISOString(), "Қызметкер қосылды", employeeId, employee.name, "", "", "Белсенді"]]);
 }
 
 async function syncGoogleSheets(data) {
@@ -1082,22 +1117,6 @@ async function syncGoogleSheets(data) {
         record.updatedAt || "",
       ]);
     }
-  }
-
-  const daily = [["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"]];
-  const dailyDates = new Set(Object.keys(data.attendance));
-  dailyDates.add(today());
-  for (const date of [...dailyDates].sort()) {
-    const summary = daySummary(data, date);
-    daily.push([
-      date,
-      summary.counts.present || 0,
-      summary.counts.half || 0,
-      summary.counts.absent || 0,
-      summary.counts.dayoff || 0,
-      summary.total - summary.marked,
-      summary.total,
-    ]);
   }
 
   const summary = [["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"]];
@@ -1138,17 +1157,15 @@ async function syncGoogleSheets(data) {
     ]),
   ];
 
-  await updateSheetRange("Employees!A1:F1000", employees);
-  await updateSheetRange("Attendance!A1:G5000", attendance);
-  await updateSheetRange("Daily Control!A1:G2000", daily);
-  await updateSheetRange("Summary!A1:I2000", summary);
-  await updateSheetRange("History!A1:G5000", history);
+  await updateSheetRange(sheetRange(SHEETS.employees, "A1:F1000"), employees);
+  await updateSheetRange(sheetRange(SHEETS.attendance, "A1:G5000"), attendance);
+  await updateSheetRange(sheetRange(SHEETS.reports, "A1:I2000"), summary);
+  await updateSheetRange(sheetRange(SHEETS.history, "A1:G5000"), history);
   data.sheetSync = {
     at: new Date().toISOString(),
     rows: {
       employees: employees.length - 1,
       attendance: attendance.length - 1,
-      daily: daily.length - 1,
       summary: summary.length - 1,
       history: history.length - 1,
     },
