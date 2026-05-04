@@ -27,10 +27,26 @@ function serviceEmail() {
 
 function privateKey() {
   const value = env("GOOGLE_PRIVATE_KEY").trim();
-  const unquoted = (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
-    ? value.slice(1, -1)
+  const withoutPrefix = value.startsWith("GOOGLE_PRIVATE_KEY=")
+    ? value.slice("GOOGLE_PRIVATE_KEY=".length).trim()
     : value;
-  return unquoted.replaceAll("\\n", "\n");
+  const unquoted = (withoutPrefix.startsWith('"') && withoutPrefix.endsWith('"')) || (withoutPrefix.startsWith("'") && withoutPrefix.endsWith("'"))
+    ? withoutPrefix.slice(1, -1)
+    : withoutPrefix;
+  let key = unquoted
+    .replaceAll("\\n", "\n")
+    .replaceAll("-----BEGIN_PRIVATE_KEY-----", "-----BEGIN PRIVATE KEY-----")
+    .replaceAll("-----END_PRIVATE_KEY-----", "-----END PRIVATE KEY-----")
+    .replaceAll("-----BEGIN PRIVATE_KEY-----", "-----BEGIN PRIVATE KEY-----")
+    .replaceAll("-----END PRIVATE_KEY-----", "-----END PRIVATE KEY-----");
+
+  key = key.replace(/\r/g, "").trim();
+  if (key.includes("-----BEGIN PRIVATE KEY-----") && !key.includes("\n")) {
+    key = key
+      .replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
+      .replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----");
+  }
+  return key;
 }
 
 function base64url(value) {
@@ -56,7 +72,12 @@ async function getGoogleAccessToken() {
     exp: now + 3600,
     iat: now,
   }))}`;
-  const signature = crypto.createSign("RSA-SHA256").update(unsigned).sign(privateKey(), "base64url");
+  let signature;
+  try {
+    signature = crypto.createSign("RSA-SHA256").update(unsigned).sign(privateKey(), "base64url");
+  } catch {
+    throw new Error("GOOGLE_PRIVATE_KEY форматы қате. Vercel-де толық private key қойыңыз: -----BEGIN PRIVATE KEY----- деп басталып, -----END PRIVATE KEY----- деп бітуі керек.");
+  }
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
