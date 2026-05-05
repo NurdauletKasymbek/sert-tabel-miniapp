@@ -21,7 +21,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const statusMeta = {
   present: {
@@ -136,6 +136,8 @@ function App() {
   const [roleFilter, setRoleFilter] = useState("");
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [reportState, setReportState] = useState("ready");
+  const employeeListRef = useRef(null);
+  const swipeStartRef = useRef(null);
 
   useEffect(() => {
     loadState();
@@ -182,6 +184,13 @@ function App() {
     }
     return marks;
   }, [month, selected?.id, state.attendance]);
+
+  useEffect(() => {
+    const list = employeeListRef.current;
+    if (!list || !selected?.id) return;
+    const active = list.querySelector(`[data-employee-id="${CSS.escape(selected.id)}"]`);
+    active?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [selected?.id, filteredEmployees.length]);
 
   async function addEmployee() {
     if (!newName.trim() || savingEmployee) return;
@@ -305,9 +314,33 @@ function App() {
   }
 
   function goNextEmployee() {
-    if (!employees.length) return;
-    const index = employees.findIndex((employee) => employee.id === selected?.id);
-    setSelectedId(employees[(index + 1) % employees.length].id);
+    changeEmployee(1);
+  }
+
+  function changeEmployee(direction) {
+    const list = filteredEmployees.length ? filteredEmployees : employees;
+    if (!list.length) return;
+    const index = Math.max(0, list.findIndex((employee) => employee.id === selected?.id));
+    const nextIndex = (index + direction + list.length) % list.length;
+    setSelectedId(list[nextIndex].id);
+  }
+
+  function handleSwipeStart(event) {
+    swipeStartRef.current = {
+      x: event.touches[0].clientX,
+      y: event.touches[0].clientY,
+    };
+  }
+
+  function handleSwipeEnd(event) {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+    changeEmployee(dx < 0 ? 1 : -1);
   }
 
   return (
@@ -395,12 +428,12 @@ function App() {
             )}
           </div>
 
-          <div className="no-scrollbar flex gap-2 overflow-x-auto">
+          <div ref={employeeListRef} className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth">
             {filteredEmployees.map((employee) => {
               const active = employee.id === selected?.id;
               const markedCount = Object.values(employee.counts || {}).reduce((sum, value) => sum + value, 0);
               return (
-                <button key={employee.id} onClick={() => setSelectedId(employee.id)} className={cx("employee-tab", active && "employee-tab-active")}>
+                <button key={employee.id} data-employee-id={employee.id} onClick={() => setSelectedId(employee.id)} className={cx("employee-tab snap-center", active && "employee-tab-active")}>
                   <span className="block text-sm font-black">{employee.name}</span>
                   <span className={cx("mt-1 block text-xs font-bold", active ? "text-white/65" : "text-[#7a86a0]")}>
                     {employee.role || "Қызметкер"} · {markedCount} белгі
@@ -410,7 +443,7 @@ function App() {
             })}
           </div>
 
-          <section className="main-card">
+          <section className="main-card touch-pan-y select-none" onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
             {loading ? (
               <div className="py-24 text-center text-sm font-bold text-[#7a86a0]">Жүктеліп жатыр...</div>
             ) : !selected ? (
