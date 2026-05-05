@@ -374,9 +374,14 @@ export function dayControl(attendanceMap, employees, date) {
 }
 
 export function statusCounts(attendanceMap, employeeId, month) {
+  return statusCountsUntil(attendanceMap, employeeId, month);
+}
+
+export function statusCountsUntil(attendanceMap, employeeId, month, untilDate = "") {
   const counts = { present: 0, half: 0, absent: 0, dayoff: 0 };
   for (const [date, records] of Object.entries(attendanceMap)) {
     if (!date.startsWith(month)) continue;
+    if (untilDate && date > untilDate) continue;
     const status = records[employeeId]?.status;
     if (counts[status] !== undefined) counts[status] += 1;
   }
@@ -406,8 +411,16 @@ export function buildManagerReport(store, date) {
 
   const counts = dayControl(attendanceMap, employees, reportDate);
   const month = reportDate.slice(0, 7);
-  const monthTotals = employees.reduce((totals, employee) => {
-    const employeeCounts = statusCounts(attendanceMap, employee.id, month);
+  const monthlyRows = employees.map((employee) => {
+    const employeeCounts = statusCountsUntil(attendanceMap, employee.id, month, reportDate);
+    return {
+      employee,
+      counts: employeeCounts,
+      marked: employeeCounts.present + employeeCounts.half + employeeCounts.absent + employeeCounts.dayoff,
+    };
+  });
+  const monthTotals = monthlyRows.reduce((totals, row) => {
+    const employeeCounts = row.counts;
     for (const key of Object.keys(totals)) totals[key] += employeeCounts[key] || 0;
     return totals;
   }, { present: 0, half: 0, absent: 0, dayoff: 0 });
@@ -430,6 +443,14 @@ export function buildManagerReport(store, date) {
     `Жоқ: <b>${monthTotals.absent}</b>`,
     `Демалыс: <b>${monthTotals.dayoff}</b>`,
   ];
+
+  lines.push("", `<b>${month} айлық есеп - адам бойынша</b>`);
+  for (const row of monthlyRows) {
+    const employeeCounts = row.counts;
+    lines.push(
+      `- ${escapeHtml(row.employee.name)}: Жұмыста <b>${employeeCounts.present}</b>, жарты күн <b>${employeeCounts.half}</b>, жоқ <b>${employeeCounts.absent}</b>, демалыс <b>${employeeCounts.dayoff}</b>`,
+    );
+  }
 
   const sections = [
     ["Жұмыста", grouped.present],
