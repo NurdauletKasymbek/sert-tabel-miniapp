@@ -191,20 +191,7 @@ function parseCommand(text = "") {
 }
 
 function mainKeyboard() {
-  const rows = [];
-  if (MINI_APP_URL) {
-    rows.push([{ text: "Mini App ашу", web_app: { url: MINI_APP_URL } }]);
-  }
-  rows.push(
-    [{ text: "Қызметкерлер" }, { text: "Табель" }],
-    [{ text: "Календарь" }, { text: "Есеп" }],
-    [{ text: "Google Sheets" }],
-    [{ text: "Көмек" }],
-  );
-  return {
-    keyboard: rows,
-    resize_keyboard: true,
-  };
+  return { remove_keyboard: true };
 }
 
 function inlineKeyboard(rows) {
@@ -355,19 +342,10 @@ function csvReport(data, month = currentMonth()) {
 
 function helpText() {
   return [
-    "<b>Бұл бот бір жауапты адамға арналған табель жүйесі.</b>",
+    "<b>Sert табель боты</b>",
     "",
-    "Негізгі жұмыс кнопкалармен жүреді:",
-    "• Қызметкерлер — қосу, архивке жіберу, ставка өзгерту",
-    "• Табель — бүгінгі күнге белгі қою",
-    "• Календарь — кез келген күнді таңдап белгілеу",
-    "• Есеп — айлық соманы шығару",
-    "• Google Sheets — кестеге қолмен синхрондау",
-    "",
-    "Жылдам командалар:",
-    "/add Аты-жөні | 15000",
-    "/report 2026-05",
-    "/export 2026-05",
+    "Барлық жұмыс Mini App ішінде жасалады.",
+    "Бұл чатқа тек маңызды хабарламалар мен басшылыққа жіберілген есеп көшірмесі келеді.",
   ].join("\n");
 }
 
@@ -663,8 +641,7 @@ async function handleAdminCommand(message, data, command, args) {
   if (command === "/start" || command === "мәзір") {
     clearSession(data, userId);
     await saveData(data, { syncSheets: false });
-    await sendMessage(chatId, menuText(data), { reply_markup: mainKeyboard() });
-    await sendMessage(chatId, "Бөлім таңдаңыз:", { reply_markup: menuButtons() });
+    await sendMessage(chatId, helpText(), { reply_markup: mainKeyboard() });
     return true;
   }
 
@@ -747,7 +724,7 @@ async function handleMessage(message) {
   const { command, args } = parseCommand(text);
   if (await handleAdminCommand(message, data, command, args)) return;
 
-  await sendMessage(chatId, "Түсініксіз команда. Мәзірден таңдаңыз немесе /help жазыңыз.", { reply_markup: mainKeyboard() });
+  await sendMessage(chatId, "Барлық басқару Mini App ішінде. Бұл бот тек хабарлама алу үшін қалдырылды.", { reply_markup: mainKeyboard() });
 }
 
 async function handleCallback(callback) {

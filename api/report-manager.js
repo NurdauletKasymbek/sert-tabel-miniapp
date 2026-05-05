@@ -11,6 +11,13 @@ function managerIds() {
     .filter(Boolean);
 }
 
+function adminIds() {
+  return env("ADMIN_TELEGRAM_IDS")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
 async function sendTelegramMessage(chatId, text) {
   const token = env("TELEGRAM_BOT_TOKEN").trim();
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN Vercel Environment Variables ішінде жоқ");
@@ -46,6 +53,19 @@ export default async function handler(req, res) {
     const store = await loadStore();
     const report = buildManagerReport(store, String(body.date || ""));
     await Promise.all(ids.map((chatId) => sendTelegramMessage(chatId, report.text)));
+    const admins = adminIds();
+    if (admins.length) {
+      const managerList = ids.map((id) => `<code>${id}</code>`).join(", ");
+      const copyText = [
+        "<b>Басшылыққа есеп жіберілді</b>",
+        `Кімге: ${managerList}`,
+        `Күні: <b>${report.date}</b>`,
+        "",
+        "<b>Жіберілген ақпарат:</b>",
+        report.text,
+      ].join("\n");
+      await Promise.all(admins.map((chatId) => sendTelegramMessage(chatId, copyText)));
+    }
     res.status(200).json({ ok: true, sentTo: ids.length, date: report.date, counts: report.counts });
   } catch (error) {
     res.status(500).json({ error: `Басшылыққа есеп жіберілмеді: ${error.message}` });
