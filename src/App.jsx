@@ -138,8 +138,6 @@ function App() {
   const [reportState, setReportState] = useState("ready");
   const employeeListRef = useRef(null);
   const swipeStartRef = useRef(null);
-  const scrollSelectTimerRef = useRef(null);
-  const autoScrollRef = useRef(false);
 
   useEffect(() => {
     loadState();
@@ -190,13 +188,8 @@ function App() {
   useEffect(() => {
     const list = employeeListRef.current;
     if (!list || !selected?.id) return;
-    const escapedId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(selected.id) : selected.id.replace(/"/g, '\\"');
-    const active = list.querySelector(`[data-employee-id="${escapedId}"]`);
-    autoScrollRef.current = true;
+    const active = list.querySelector(`[data-employee-id="${CSS.escape(selected.id)}"]`);
     active?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-    window.setTimeout(() => {
-      autoScrollRef.current = false;
-    }, 350);
   }, [selected?.id, filteredEmployees.length]);
 
   async function addEmployee() {
@@ -332,29 +325,6 @@ function App() {
     setSelectedId(list[nextIndex].id);
   }
 
-  function selectCenteredEmployee() {
-    const list = employeeListRef.current;
-    if (!list || autoScrollRef.current) return;
-    const items = Array.from(list.querySelectorAll("[data-employee-id]"));
-    if (!items.length) return;
-
-    const listRect = list.getBoundingClientRect();
-    const center = listRect.left + listRect.width / 2;
-    const closest = items.reduce((best, item) => {
-      const rect = item.getBoundingClientRect();
-      const distance = Math.abs(rect.left + rect.width / 2 - center);
-      return !best || distance < best.distance ? { item, distance } : best;
-    }, null);
-
-    const nextId = closest?.item?.dataset?.employeeId;
-    if (nextId && nextId !== selected?.id) setSelectedId(nextId);
-  }
-
-  function handleEmployeeScroll() {
-    window.clearTimeout(scrollSelectTimerRef.current);
-    scrollSelectTimerRef.current = window.setTimeout(selectCenteredEmployee, 90);
-  }
-
   function handleSwipeStart(event) {
     swipeStartRef.current = {
       x: event.touches[0].clientX,
@@ -395,7 +365,7 @@ function App() {
 
           <div className="relative mt-4 grid grid-cols-3 gap-2">
             <Metric icon={UsersRound} label="Қызметкер" value={employees.length} />
-            <Metric icon={CalendarCheck2} label="Бүгін" value={`${state.todayControl?.total - state.todayControl?.unmarked || 0}/${state.todayControl?.total || 0}`} />
+            <Metric icon={CalendarCheck2} label="Белгі қойылды" value={`${state.todayControl?.total - state.todayControl?.unmarked || 0}/${state.todayControl?.total || 0}`} />
             <Metric icon={ShieldCheck} label="Бақылау" value={state.todayControl?.unmarked ? "Ашық" : "Дайын"} />
           </div>
         </header>
@@ -458,7 +428,7 @@ function App() {
             )}
           </div>
 
-          <div ref={employeeListRef} onScroll={handleEmployeeScroll} className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth">
+          <div ref={employeeListRef} className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth">
             {filteredEmployees.map((employee) => {
               const active = employee.id === selected?.id;
               const markedCount = Object.values(employee.counts || {}).reduce((sum, value) => sum + value, 0);
