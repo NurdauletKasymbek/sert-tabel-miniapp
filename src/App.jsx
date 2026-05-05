@@ -317,6 +317,14 @@ function App() {
     changeEmployee(1);
   }
 
+  function selectTodayEmployee(employeeId) {
+    if (state.today) {
+      setMonth(state.today.slice(0, 7));
+      setSelectedDay(Number(state.today.slice(-2)));
+    }
+    setSelectedId(employeeId);
+  }
+
   function changeEmployee(direction) {
     const list = filteredEmployees.length ? filteredEmployees : employees;
     if (!list.length) return;
@@ -407,9 +415,18 @@ function App() {
                 <span className="text-lg font-black">{state.todayControl?.unmarked || 0}</span>
               </div>
               {!!state.unmarkedEmployees?.length && (
-                <p className="mt-1 line-clamp-2 text-sm font-bold text-[#415071]">
-                  {state.unmarkedEmployees.map((employee) => employee.name).join(", ")}
-                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {state.unmarkedEmployees.map((employee) => (
+                    <button
+                      key={employee.id}
+                      type="button"
+                      onClick={() => selectTodayEmployee(employee.id)}
+                      className="rounded-full bg-white px-2.5 py-1 text-left text-xs font-black text-[#0b1b5f] shadow-sm ring-1 ring-[#d5e0fb] transition active:scale-95"
+                    >
+                      {employee.name}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </section>
