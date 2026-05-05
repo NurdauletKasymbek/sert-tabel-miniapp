@@ -1,4 +1,4 @@
-import { appendHistory, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, STATUSES } from "./_lib/sheets.js";
+import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, STATUSES } from "./_lib/sheets.js";
 
 export default async function handler(req, res) {
   try {
@@ -18,6 +18,7 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "Күн, қызметкер немесе статус қате" });
       return;
     }
+    assertNotFutureDate(date);
 
     const label = statusToLabel(status);
     const existing = [...store.attendance].reverse().find((row) => row.date === date && row.employeeId === employeeId);

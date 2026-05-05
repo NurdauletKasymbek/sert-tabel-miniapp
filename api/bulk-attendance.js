@@ -1,4 +1,4 @@
-import { appendHistory, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel } from "./_lib/sheets.js";
+import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel } from "./_lib/sheets.js";
 
 export default async function handler(req, res) {
   try {
@@ -17,6 +17,7 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "Күн немесе статус қате" });
       return;
     }
+    assertNotFutureDate(date);
 
     const label = statusToLabel(status);
     const targets = store.employees.filter((employee) => employee.status !== "archived" && (!role || employee.role === role));

@@ -172,6 +172,7 @@ function App() {
     employee.name.toLowerCase().includes(query.toLowerCase()) && (!roleFilter || employee.role === roleFilter),
   );
   const selectedDate = `${month}-${String(selectedDay).padStart(2, "0")}`;
+  const isFutureDate = selectedDate > (state.today || selectedDate);
   const selectedMarks = useMemo(() => {
     const marks = {};
     for (let day = 1; day <= daysInMonth(month); day += 1) {
@@ -240,6 +241,10 @@ function App() {
 
   async function setStatus(status) {
     if (!selected) return;
+    if (isFutureDate) {
+      showNotice("error", "Алдын ала белгі қою мүмкін емес. Тек бүгінгі немесе өткен күнге белгі қойылады.");
+      return;
+    }
     try {
       const next = await api("/api/attendance", {
         method: "POST",
@@ -253,6 +258,10 @@ function App() {
   }
 
   async function markAllPresent() {
+    if (isFutureDate) {
+      showNotice("error", "Алдын ала белгі қою мүмкін емес. Тек бүгінгі немесе өткен күнге белгі қойылады.");
+      return;
+    }
     try {
       const next = await api("/api/bulk-attendance", {
         method: "POST",
@@ -350,7 +359,7 @@ function App() {
                 <p className="eyebrow">Бүгінгі бақылау</p>
                 <p className="text-lg font-black">{state.today}</p>
               </div>
-              <button onClick={markAllPresent} className="control-action">
+              <button onClick={markAllPresent} disabled={isFutureDate} className="control-action disabled:opacity-50">
                 Барлығын жұмыста
               </button>
             </div>
@@ -478,9 +487,14 @@ function App() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(statusMeta).map(([key, meta]) => (
-                <StatusButton key={key} meta={meta} onClick={() => setStatus(key)} disabled={!selected} />
+                <StatusButton key={key} meta={meta} onClick={() => setStatus(key)} disabled={!selected || isFutureDate} />
               ))}
             </div>
+            {isFutureDate && (
+              <div className="mt-3 rounded-[18px] bg-amber-50 px-4 py-3 text-sm font-black text-amber-800 ring-1 ring-amber-100">
+                Алдын ала белгі қою мүмкін емес. Бұл күн әлі келген жоқ.
+              </div>
+            )}
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
               <button onClick={goNextEmployee} className="next-button">Келесі қызметкер</button>
               <button onClick={syncSheets} className="sheet-button" aria-label="Google Sheets жаңарту">

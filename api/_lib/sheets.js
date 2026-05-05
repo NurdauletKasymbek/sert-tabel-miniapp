@@ -528,6 +528,21 @@ export function currentTime() {
   }).format(new Date());
 }
 
+export function todayDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: process.env.BOT_TIMEZONE || "Asia/Almaty",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+export function assertNotFutureDate(date) {
+  if (date > todayDate()) {
+    throw new Error("Алдын ала белгі қою мүмкін емес. Тек бүгінгі немесе өткен күнге белгі қойылады.");
+  }
+}
+
 export { STATUSES, statusToLabel };
 
 async function applyBasicFormatting() {
