@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Archive,
   ArrowLeft,
+  BarChart3,
   BriefcaseBusiness,
   CalendarCheck2,
   CalendarDays,
@@ -11,17 +12,19 @@ import {
   CircleMinus,
   Clock3,
   FileSpreadsheet,
-  Layers3,
+  Moon,
   Plus,
   RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
+  Sun,
   Umbrella,
   UsersRound,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 
 const statusMeta = {
   present: {
@@ -30,7 +33,11 @@ const statusMeta = {
     Icon: BriefcaseBusiness,
     dot: "bg-emerald-500",
     chip: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+    chipDark: "bg-emerald-500/15 text-emerald-300 ring-emerald-400/30",
     button: "from-emerald-500 to-emerald-700 shadow-emerald-900/20",
+    cellBg: "bg-emerald-100",
+    cellBgDark: "bg-emerald-500/25",
+    accent: "#10b981",
   },
   half: {
     label: "Жарты күн",
@@ -38,7 +45,11 @@ const statusMeta = {
     Icon: Clock3,
     dot: "bg-amber-500",
     chip: "bg-amber-50 text-amber-700 ring-amber-100",
+    chipDark: "bg-amber-500/15 text-amber-300 ring-amber-400/30",
     button: "from-amber-400 to-amber-700 shadow-amber-900/20",
+    cellBg: "bg-amber-100",
+    cellBgDark: "bg-amber-500/25",
+    accent: "#f59e0b",
   },
   absent: {
     label: "Жұмыста жоқ",
@@ -46,7 +57,11 @@ const statusMeta = {
     Icon: CircleMinus,
     dot: "bg-rose-500",
     chip: "bg-rose-50 text-rose-700 ring-rose-100",
+    chipDark: "bg-rose-500/15 text-rose-300 ring-rose-400/30",
     button: "from-rose-500 to-rose-700 shadow-rose-900/20",
+    cellBg: "bg-rose-100",
+    cellBgDark: "bg-rose-500/25",
+    accent: "#f43f5e",
   },
   dayoff: {
     label: "Демалыс",
@@ -54,7 +69,11 @@ const statusMeta = {
     Icon: Umbrella,
     dot: "bg-slate-500",
     chip: "bg-slate-100 text-slate-700 ring-slate-200",
+    chipDark: "bg-slate-500/20 text-slate-300 ring-slate-400/25",
     button: "from-slate-500 to-slate-700 shadow-slate-900/20",
+    cellBg: "bg-slate-200",
+    cellBgDark: "bg-slate-500/25",
+    accent: "#64748b",
   },
 };
 
@@ -119,6 +138,24 @@ function emptyState() {
   };
 }
 
+function getTelegram() {
+  return typeof window !== "undefined" ? window.Telegram?.WebApp : null;
+}
+
+function haptic(type = "light") {
+  const tg = getTelegram();
+  if (!tg?.HapticFeedback) return;
+  try {
+    if (["light", "medium", "heavy", "rigid", "soft"].includes(type)) {
+      tg.HapticFeedback.impactOccurred(type);
+    } else if (["success", "warning", "error"].includes(type)) {
+      tg.HapticFeedback.notificationOccurred(type);
+    } else if (type === "selection") {
+      tg.HapticFeedback.selectionChanged();
+    }
+  } catch {}
+}
+
 function App() {
   const [state, setState] = useState(emptyState);
   const [selectedId, setSelectedId] = useState(null);
@@ -127,17 +164,45 @@ function App() {
   const [query, setQuery] = useState("");
   const [syncState, setSyncState] = useState("ready");
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState(null);
+  const [toasts, setToasts] = useState([]);
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState("");
+  const [newSchedule, setNewSchedule] = useState("standard");
   const [savingEmployee, setSavingEmployee] = useState(false);
   const [addError, setAddError] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [reportState, setReportState] = useState("ready");
+  const [theme, setTheme] = useState("light");
+  const [pendingStatus, setPendingStatus] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
   const employeeListRef = useRef(null);
   const swipeStartRef = useRef(null);
+  const toastTimers = useRef(new Map());
+
+  useEffect(() => {
+    const tg = getTelegram();
+    if (!tg) return;
+    try {
+      tg.ready();
+      tg.expand();
+      setTheme(tg.colorScheme === "dark" ? "dark" : "light");
+      const handleTheme = () => setTheme(tg.colorScheme === "dark" ? "dark" : "light");
+      tg.onEvent("themeChanged", handleTheme);
+      return () => tg.offEvent("themeChanged", handleTheme);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     loadState();
@@ -147,10 +212,20 @@ function App() {
     if (!selectedId && state.employees.length) setSelectedId(state.employees[0].id);
   }, [selectedId, state.employees]);
 
-  function showNotice(type, text) {
-    setNotice({ type, text });
-    window.clearTimeout(showNotice.timer);
-    showNotice.timer = window.setTimeout(() => setNotice(null), 3600);
+  function showToast(type, text) {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev, { id, type, text }]);
+    const timer = window.setTimeout(() => dismissToast(id), 3200);
+    toastTimers.current.set(id, timer);
+  }
+
+  function dismissToast(id) {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    const timer = toastTimers.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimers.current.delete(id);
+    }
   }
 
   async function loadState() {
@@ -162,7 +237,7 @@ function App() {
       setSelectedDay(Number((next.today || "2026-05-01").slice(-2)));
       if (!selectedId && next.employees?.length) setSelectedId(next.employees[0].id);
     } catch (err) {
-      showNotice("error", err.message);
+      showToast("error", err.message);
     } finally {
       setLoading(false);
     }
@@ -194,25 +269,29 @@ function App() {
 
   async function addEmployee() {
     if (!newName.trim() || savingEmployee) return;
+    haptic("medium");
     setAddError("");
     try {
       setSavingEmployee(true);
       const name = newName.trim();
       const next = await api("/api/employees", {
         method: "POST",
-        body: JSON.stringify({ name, role: newRole.trim() || "Қызметкер" }),
+        body: JSON.stringify({ name, role: newRole.trim() || "Қызметкер", schedule: newSchedule }),
       });
       setState(next);
       const created = next.employees.find((employee) => employee.name === name);
       if (created) setSelectedId(created.id);
       setNewName("");
       setNewRole("");
+      setNewSchedule("standard");
       setAddOpen(false);
-      showNotice("success", `${name} базаға сақталды және Google Sheets жаңарды.`);
+      haptic("success");
+      showToast("success", `${name} базаға сақталды және Google Sheets жаңарды.`);
     } catch (err) {
       const message = `Сақталмады: ${err.message}`;
       setAddError(message);
-      showNotice("error", message);
+      haptic("error");
+      showToast("error", message);
     } finally {
       setSavingEmployee(false);
     }
@@ -220,6 +299,7 @@ function App() {
 
   async function archiveSelected() {
     if (!selected) return;
+    haptic("medium");
     try {
       const next = await api(`/api/employees/${encodeURIComponent(selected.id)}`, {
         method: "PATCH",
@@ -227,13 +307,16 @@ function App() {
       });
       setState(next);
       setSelectedId(next.employees[0]?.id || null);
-      showNotice("success", `${selected.name} архивке жіберілді.`);
+      haptic("success");
+      showToast("success", `${selected.name} архивке жіберілді.`);
     } catch (err) {
-      showNotice("error", err.message);
+      haptic("error");
+      showToast("error", err.message);
     }
   }
 
   async function restoreEmployee(employeeId) {
+    haptic("medium");
     try {
       const next = await api(`/api/employees/${encodeURIComponent(employeeId)}`, {
         method: "PATCH",
@@ -242,62 +325,79 @@ function App() {
       setState(next);
       setSelectedId(employeeId);
       setArchiveOpen(false);
-      showNotice("success", "Қызметкер қайта қосылды.");
+      haptic("success");
+      showToast("success", "Қызметкер қайта қосылды.");
     } catch (err) {
-      showNotice("error", err.message);
+      haptic("error");
+      showToast("error", err.message);
     }
   }
 
   async function setStatus(status) {
-    if (!selected) return;
+    if (!selected || pendingStatus) return;
     if (isFutureDate) {
-      showNotice("error", "Алдын ала белгі қою мүмкін емес. Тек бүгінгі немесе өткен күнге белгі қойылады.");
+      haptic("error");
+      showToast("error", "Алдын ала белгі қою мүмкін емес. Тек бүгінгі немесе өткен күнге белгі қойылады.");
       return;
     }
+    haptic("light");
     try {
+      setPendingStatus(true);
       const next = await api("/api/attendance", {
         method: "POST",
         body: JSON.stringify({ date: selectedDate, employeeId: selected.id, status }),
       });
       setState(next);
-      showNotice("success", `${selected.name}: ${statusMeta[status].label} сақталды.`);
+      haptic("success");
+      showToast("success", `${selected.name}: ${statusMeta[status].label} сақталды.`);
     } catch (err) {
-      showNotice("error", err.message);
+      haptic("error");
+      showToast("error", err.message);
+    } finally {
+      setPendingStatus(false);
     }
   }
 
   async function markAllPresent() {
     if (isFutureDate) {
-      showNotice("error", "Алдын ала белгі қою мүмкін емес. Тек бүгінгі немесе өткен күнге белгі қойылады.");
+      haptic("error");
+      showToast("error", "Алдын ала белгі қою мүмкін емес. Тек бүгінгі немесе өткен күнге белгі қойылады.");
       return;
     }
+    haptic("medium");
     try {
       const next = await api("/api/bulk-attendance", {
         method: "POST",
         body: JSON.stringify({ date: selectedDate, status: "present", role: roleFilter }),
       });
       setState(next);
-      showNotice("success", "Таңдалған қызметкерлердің бәрі жұмыста деп белгіленді.");
+      haptic("success");
+      showToast("success", "Таңдалған қызметкерлердің бәрі жұмыста деп белгіленді.");
     } catch (err) {
-      showNotice("error", err.message);
+      haptic("error");
+      showToast("error", err.message);
     }
   }
 
   async function syncSheets() {
+    haptic("medium");
     setSyncState("syncing");
     try {
       const next = await api("/api/sync", { method: "POST", body: "{}" });
       setState(next);
       setSyncState("done");
-      showNotice("success", "Google Sheets толық жаңартылды.");
+      haptic("success");
+      showToast("success", "Google Sheets толық жаңартылды.");
       setTimeout(() => setSyncState("ready"), 2400);
     } catch (err) {
-      showNotice("error", err.message);
+      haptic("error");
+      showToast("error", err.message);
       setSyncState("ready");
     }
   }
 
   async function sendManagerReport() {
+    haptic("medium");
     setReportState("sending");
     try {
       const result = await api("/api/report-manager", {
@@ -305,19 +405,23 @@ function App() {
         body: JSON.stringify({ date: selectedDate }),
       });
       setReportState("sent");
-      showNotice("success", `Есеп басшылыққа жіберілді: ${result.sentTo} адам.`);
+      haptic("success");
+      showToast("success", `Есеп басшылыққа жіберілді: ${result.sentTo} адам.`);
       setTimeout(() => setReportState("ready"), 2400);
     } catch (err) {
-      showNotice("error", err.message);
+      haptic("error");
+      showToast("error", err.message);
       setReportState("ready");
     }
   }
 
   function goNextEmployee() {
+    haptic("selection");
     changeEmployee(1);
   }
 
   function selectTodayEmployee(employeeId) {
+    haptic("selection");
     if (state.today) {
       setMonth(state.today.slice(0, 7));
       setSelectedDay(Number(state.today.slice(-2)));
@@ -348,22 +452,46 @@ function App() {
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
     if (Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+    haptic("selection");
     changeEmployee(dx < 0 ? 1 : -1);
   }
 
+  const isDark = theme === "dark";
+  const todayDay = state.today?.startsWith(month) ? Number(state.today.slice(-2)) : null;
+
   return (
-    <main className="min-h-screen bg-[#07101f] text-[#07122b]">
-      <section className="app-shell mx-auto flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden bg-[#f5f7fb] shadow-2xl md:my-5 md:min-h-[860px] md:rounded-[34px]">
+    <main className={cx("min-h-screen", isDark ? "bg-[#04060d] text-white" : "bg-[#07101f] text-[#07122b]")}>
+      <section className={cx("app-shell mx-auto flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden shadow-2xl md:my-5 md:min-h-[860px] md:rounded-[34px]", isDark ? "bg-[#0a1126]" : "bg-[#f5f7fb]")}>
         <header className="relative overflow-hidden px-5 pb-5 pt-5 text-white">
-          <div className="absolute inset-0 bg-[linear-gradient(145deg,#07133a_0%,#102a77_48%,#07101f_100%)]" />
+          <div className={cx("absolute inset-0", isDark
+            ? "bg-[linear-gradient(145deg,#020616_0%,#0a1640_48%,#020616_100%)]"
+            : "bg-[linear-gradient(145deg,#07133a_0%,#102a77_48%,#07101f_100%)]")} />
           <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(135deg,rgba(255,255,255,.22)_1px,transparent_1px),linear-gradient(45deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:22px_22px]" />
 
           <div className="relative flex items-center justify-between">
-            <button className="glass-icon text-white" aria-label="Артқа">
+            <motion.button whileTap={{ scale: 0.92 }} className="glass-icon text-white" aria-label="Артқа">
               <ArrowLeft className="size-5" />
-            </button>
-            <div className="rounded-full border border-white/25 bg-white/12 px-3 py-1 text-xs font-bold text-white/90 backdrop-blur">
-              Sert Mini App
+            </motion.button>
+            <LiveClock now={now} />
+            <div className="flex items-center gap-2">
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={() => { haptic("light"); setStatsOpen(true); }}
+                className="glass-icon text-white"
+                aria-label="Айлық статистика"
+              >
+                <BarChart3 className="size-5" />
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={() => { haptic("light"); setTheme(theme === "dark" ? "light" : "dark"); }}
+                className="glass-icon text-white"
+                aria-label="Тема"
+              >
+                <motion.span key={theme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.3 }}>
+                  {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
+                </motion.span>
+              </motion.button>
             </div>
           </div>
 
@@ -379,52 +507,53 @@ function App() {
         </header>
 
         <section className="grid flex-1 grid-rows-[auto_auto_auto_auto_1fr_auto] gap-4 px-4 py-4">
-          {notice && <Notice type={notice.type} text={notice.text} />}
-
           <div className="premium-search">
-            <Search className="size-4 text-[#7a86a0]" />
+            <Search className={cx("size-4", isDark ? "text-slate-400" : "text-[#7a86a0]")} />
             <input
-              className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-[#9aa6bc]"
+              className={cx("min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none", isDark ? "text-white placeholder:text-slate-500" : "placeholder:text-[#9aa6bc]")}
               placeholder="Қызметкер іздеу"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button onClick={() => { setAddError(""); setAddOpen(true); }} className="primary-round" aria-label="Қызметкер қосу">
+            <motion.button whileTap={{ scale: 0.92 }} onClick={() => { haptic("light"); setAddError(""); setAddOpen(true); }} className="primary-round" aria-label="Қызметкер қосу">
               <Plus className="size-5" />
-            </button>
+            </motion.button>
           </div>
 
-          <section className="control-panel">
+          <section className={cx("control-panel", isDark && "control-panel-dark")}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="eyebrow">Бүгінгі бақылау</p>
-                <p className="text-lg font-black">{state.today}</p>
+                <p className={cx("eyebrow", isDark && "eyebrow-dark")}>Бүгінгі бақылау</p>
+                <p className={cx("text-lg font-black", isDark ? "text-white" : "text-[#07122b]")}>{state.today}</p>
               </div>
-              <button onClick={markAllPresent} disabled={isFutureDate} className="control-action disabled:opacity-50">
+              <motion.button whileTap={{ scale: 0.96 }} onClick={markAllPresent} disabled={isFutureDate} className="control-action disabled:opacity-50">
                 Барлығын жұмыста
-              </button>
+              </motion.button>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(statusMeta).map(([key, meta]) => (
-                <StatusPill key={key} meta={meta} value={state.todayControl?.[key] || 0} />
+                <StatusPill key={key} isDark={isDark} meta={meta} value={state.todayControl?.[key] || 0} />
               ))}
             </div>
-            <div className="mt-2 rounded-2xl bg-[#eef3ff] px-3 py-3 text-[#0b1b5f] ring-1 ring-[#dce6ff]">
+            <div className={cx("mt-2 rounded-2xl px-3 py-3 ring-1", isDark ? "bg-white/5 text-slate-200 ring-white/10" : "bg-[#eef3ff] text-[#0b1b5f] ring-[#dce6ff]")}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-[0.14em]">Белгі қойылмаған</span>
-                <span className="text-lg font-black">{state.todayControl?.unmarked || 0}</span>
+                <motion.span key={state.todayControl?.unmarked || 0} initial={{ scale: 0.7 }} animate={{ scale: 1 }} className="text-lg font-black">
+                  {state.todayControl?.unmarked || 0}
+                </motion.span>
               </div>
               {!!state.unmarkedEmployees?.length && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {state.unmarkedEmployees.map((employee) => (
-                    <button
+                    <motion.button
+                      whileTap={{ scale: 0.92 }}
                       key={employee.id}
                       type="button"
                       onClick={() => selectTodayEmployee(employee.id)}
-                      className="rounded-full bg-white px-2.5 py-1 text-left text-xs font-black text-[#0b1b5f] shadow-sm ring-1 ring-[#d5e0fb] transition active:scale-95"
+                      className={cx("rounded-full px-2.5 py-1 text-left text-xs font-black shadow-sm ring-1 transition", isDark ? "bg-white/10 text-white ring-white/15" : "bg-white text-[#0b1b5f] ring-[#d5e0fb]")}
                     >
                       {employee.name}
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
               )}
@@ -432,167 +561,261 @@ function App() {
           </section>
 
           <div className="no-scrollbar flex gap-2 overflow-x-auto">
-            <FilterChip active={!roleFilter} onClick={() => setRoleFilter("")}>Барлығы</FilterChip>
+            <FilterChip isDark={isDark} active={!roleFilter} onClick={() => { haptic("selection"); setRoleFilter(""); }}>Барлығы</FilterChip>
             {(state.roles || []).map((role) => (
-              <FilterChip key={role} active={roleFilter === role} onClick={() => setRoleFilter(role)}>
+              <FilterChip isDark={isDark} key={role} active={roleFilter === role} onClick={() => { haptic("selection"); setRoleFilter(role); }}>
                 {role}
               </FilterChip>
             ))}
             {!!state.archivedEmployees?.length && (
-              <FilterChip onClick={() => setArchiveOpen(true)}>
+              <FilterChip isDark={isDark} onClick={() => { haptic("light"); setArchiveOpen(true); }}>
                 Архив
               </FilterChip>
             )}
           </div>
 
-          <div ref={employeeListRef} className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth">
-            {filteredEmployees.map((employee) => {
-              const active = employee.id === selected?.id;
-              const markedCount = Object.values(employee.counts || {}).reduce((sum, value) => sum + value, 0);
-              return (
-                <button key={employee.id} data-employee-id={employee.id} onClick={() => setSelectedId(employee.id)} className={cx("employee-tab snap-center", active && "employee-tab-active")}>
-                  <span className="block text-sm font-black">{employee.name}</span>
-                  <span className={cx("mt-1 block text-xs font-bold", active ? "text-white/65" : "text-[#7a86a0]")}>
-                    {employee.role || "Қызметкер"} · {markedCount} белгі
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <LayoutGroup id="employee-tabs">
+            <div ref={employeeListRef} className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth">
+              {filteredEmployees.map((employee) => {
+                const active = employee.id === selected?.id;
+                const markedCount = Object.values(employee.counts || {}).reduce((sum, value) => sum + value, 0);
+                return (
+                  <motion.button
+                    key={employee.id}
+                    layout
+                    whileTap={{ scale: 0.95 }}
+                    data-employee-id={employee.id}
+                    onClick={() => { haptic("selection"); setSelectedId(employee.id); }}
+                    className={cx("employee-tab snap-center", active && "employee-tab-active", isDark && "employee-tab-dark", isDark && active && "employee-tab-active-dark")}
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="employee-active-bg"
+                        className="absolute inset-0 rounded-[20px] bg-gradient-to-br from-[#102a77] to-[#07133a]"
+                        transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                      />
+                    )}
+                    <span className="relative block text-sm font-black">{employee.name}</span>
+                    <span className={cx("relative mt-1 block text-xs font-bold", active ? "text-white/65" : isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                      {employee.role || "Қызметкер"} · {markedCount} белгі
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </LayoutGroup>
 
-          <section className="main-card touch-pan-y select-none" onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
+          <section className={cx("main-card touch-pan-y select-none", isDark && "main-card-dark")} onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
             {loading ? (
-              <div className="py-24 text-center text-sm font-bold text-[#7a86a0]">Жүктеліп жатыр...</div>
+              <SkeletonCard isDark={isDark} />
             ) : !selected ? (
               <div className="py-20 text-center">
-                <div className="mx-auto grid size-16 place-items-center rounded-3xl bg-[#eef3ff] text-[#0b1b5f]">
+                <div className={cx("mx-auto grid size-16 place-items-center rounded-3xl", isDark ? "bg-white/10 text-white" : "bg-[#eef3ff] text-[#0b1b5f]")}>
                   <UsersRound className="size-8" />
                 </div>
-                <p className="mt-4 text-xl font-black">Қызметкер жоқ</p>
-                <button onClick={() => { setAddError(""); setAddOpen(true); }} className="mt-4 rounded-2xl bg-[#0b1b5f] px-5 py-3 text-sm font-black text-white">
+                <p className={cx("mt-4 text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>Қызметкер жоқ</p>
+                <motion.button whileTap={{ scale: 0.97 }} onClick={() => { haptic("light"); setAddError(""); setAddOpen(true); }} className="mt-4 rounded-2xl bg-[#0b1b5f] px-5 py-3 text-sm font-black text-white">
                   Бірінші қызметкерді қосу
-                </button>
+                </motion.button>
               </div>
             ) : (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="eyebrow">{selected.role || "Қызметкер"}</p>
-                    <h2 className="mt-1 text-2xl font-black text-[#07122b]">{selected.name}</h2>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={selected.id}
+                  initial={{ opacity: 0, x: 24 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -24 }}
+                  transition={{ duration: 0.2, ease: [0.22, 0.61, 0.36, 1] }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className={cx("eyebrow", isDark && "eyebrow-dark")}>{selected.role || "Қызметкер"}</p>
+                      <h2 className={cx("mt-1 text-2xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{selected.name}</h2>
+                    </div>
+                    <motion.button whileTap={{ scale: 0.92 }} onClick={archiveSelected} className={cx("soft-icon", isDark && "soft-icon-dark")} aria-label="Архивке жіберу">
+                      <Archive className="size-5" />
+                    </motion.button>
                   </div>
-                  <button onClick={archiveSelected} className="soft-icon" aria-label="Архивке жіберу">
-                    <Archive className="size-5" />
-                  </button>
-                </div>
 
-                <div className="mt-4 grid grid-cols-4 gap-2">
-                  {Object.entries(statusMeta).map(([key, meta]) => (
-                    <SmallStat key={key} meta={meta} value={selected.counts?.[key] || 0} />
-                  ))}
-                </div>
-
-                <div className="mt-4 flex items-center justify-between rounded-[22px] bg-[#f1f5fb] px-3 py-2">
-                  <button onClick={() => setMonth(addMonths(month, -1))} className="nav-round" aria-label="Алдыңғы ай">
-                    <ChevronLeft className="size-5" />
-                  </button>
-                  <div className="text-center">
-                    <p className="text-base font-black">{monthLabel(month)}</p>
-                    <p className="text-xs font-bold text-[#7d88a0]">Қатысу календарі</p>
+                  <div className="mt-4 grid grid-cols-4 gap-2">
+                    {Object.entries(statusMeta).map(([key, meta]) => (
+                      <SmallStat key={key} isDark={isDark} meta={meta} value={selected.counts?.[key] || 0} />
+                    ))}
                   </div>
-                  <button onClick={() => setMonth(addMonths(month, 1))} className="nav-round" aria-label="Келесі ай">
-                    <ChevronRight className="size-5" />
-                  </button>
-                </div>
 
-                <div className="mt-4 grid grid-cols-7 gap-1.5">
-                  {weekDays.map((day) => (
-                    <div key={day} className="grid h-7 place-items-center text-[11px] font-black text-[#9aa6bc]">{day}</div>
-                  ))}
-                  {Array.from({ length: weekdayOffset(month) }).map((_, index) => <div key={`empty-${index}`} className="aspect-square" />)}
-                  {Array.from({ length: daysInMonth(month) }).map((_, index) => {
-                    const day = index + 1;
-                    const status = selectedMarks[day];
-                    const active = day === selectedDay;
-                    return (
-                      <button key={day} onClick={() => setSelectedDay(day)} className={cx("calendar-day", active && "calendar-active", status && "calendar-marked")}>
-                        <span>{day}</span>
-                        {status && <span className={cx("absolute bottom-1.5 left-1/2 size-2.5 -translate-x-1/2 rounded-full shadow-sm", statusMeta[status].dot)} />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
+                  <div className={cx("mt-4 flex items-center justify-between rounded-[22px] px-3 py-2", isDark ? "bg-white/5" : "bg-[#f1f5fb]")}>
+                    <motion.button whileTap={{ scale: 0.9 }} onClick={() => { haptic("selection"); setMonth(addMonths(month, -1)); }} className={cx("nav-round", isDark && "nav-round-dark")} aria-label="Алдыңғы ай">
+                      <ChevronLeft className="size-5" />
+                    </motion.button>
+                    <div className="text-center">
+                      <p className={cx("text-base font-black", isDark ? "text-white" : "text-[#07122b]")}>{monthLabel(month)}</p>
+                      <p className={cx("text-xs font-bold", isDark ? "text-slate-400" : "text-[#7d88a0]")}>Қатысу календарі</p>
+                    </div>
+                    <motion.button whileTap={{ scale: 0.9 }} onClick={() => { haptic("selection"); setMonth(addMonths(month, 1)); }} className={cx("nav-round", isDark && "nav-round-dark")} aria-label="Келесі ай">
+                      <ChevronRight className="size-5" />
+                    </motion.button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-7 gap-1.5">
+                    {weekDays.map((day) => (
+                      <div key={day} className={cx("grid h-7 place-items-center text-[11px] font-black", isDark ? "text-slate-500" : "text-[#9aa6bc]")}>{day}</div>
+                    ))}
+                    {Array.from({ length: weekdayOffset(month) }).map((_, index) => <div key={`empty-${index}`} className="aspect-square" />)}
+                    {Array.from({ length: daysInMonth(month) }).map((_, index) => {
+                      const day = index + 1;
+                      const status = selectedMarks[day];
+                      const meta = status ? statusMeta[status] : null;
+                      const active = day === selectedDay;
+                      const isToday = day === todayDay;
+                      return (
+                        <motion.button
+                          key={day}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => { haptic("selection"); setSelectedDay(day); }}
+                          className={cx(
+                            "calendar-day relative",
+                            isDark && "calendar-day-dark",
+                            meta && (isDark ? meta.cellBgDark : meta.cellBg),
+                            meta && "calendar-marked",
+                            active && "calendar-active",
+                            isDark && active && "calendar-active-dark",
+                            isToday && "calendar-today",
+                          )}
+                        >
+                          <span className="relative z-10">{day}</span>
+                          {meta && (
+                            <motion.span
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              transition={{ type: "spring", stiffness: 460, damping: 28 }}
+                              className={cx("absolute bottom-1.5 left-1/2 size-2.5 -translate-x-1/2 rounded-full shadow-sm", meta.dot)}
+                            />
+                          )}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              </AnimatePresence>
             )}
           </section>
 
-          <section className="action-dock">
+          <section className={cx("action-dock", isDark && "action-dock-dark")}>
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <p className="eyebrow">Таңдалған күн</p>
-                <p className="text-lg font-black">{selectedDate}</p>
+                <p className={cx("eyebrow", isDark && "eyebrow-dark")}>Таңдалған күн</p>
+                <p className={cx("text-lg font-black", isDark ? "text-white" : "text-[#07122b]")}>{selectedDate}</p>
               </div>
-              <div className="grid size-11 place-items-center rounded-2xl bg-[#eef3ff] text-[#0b1b5f]">
+              <div className={cx("grid size-11 place-items-center rounded-2xl", isDark ? "bg-white/10 text-white" : "bg-[#eef3ff] text-[#0b1b5f]")}>
                 <CalendarDays className="size-5" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(statusMeta).map(([key, meta]) => (
-                <StatusButton key={key} meta={meta} onClick={() => setStatus(key)} disabled={!selected || isFutureDate} />
+                <StatusButton
+                  key={key}
+                  meta={meta}
+                  isCurrent={selectedMarks[selectedDay] === key}
+                  pending={pendingStatus}
+                  onClick={() => setStatus(key)}
+                  disabled={!selected || isFutureDate || pendingStatus}
+                />
               ))}
             </div>
             {isFutureDate && (
-              <div className="mt-3 rounded-[18px] bg-amber-50 px-4 py-3 text-sm font-black text-amber-800 ring-1 ring-amber-100">
+              <div className={cx("mt-3 rounded-[18px] px-4 py-3 text-sm font-black ring-1", isDark ? "bg-amber-500/10 text-amber-300 ring-amber-400/20" : "bg-amber-50 text-amber-800 ring-amber-100")}>
                 Алдын ала белгі қою мүмкін емес. Бұл күн әлі келген жоқ.
               </div>
             )}
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-              <button onClick={goNextEmployee} className="next-button">Келесі қызметкер</button>
-              <button onClick={syncSheets} className="sheet-button" aria-label="Google Sheets жаңарту">
+              <motion.button whileTap={{ scale: 0.97 }} onClick={goNextEmployee} className="next-button">Келесі қызметкер</motion.button>
+              <motion.button whileTap={{ scale: 0.92 }} onClick={syncSheets} className={cx("sheet-button", isDark && "sheet-button-dark")} aria-label="Google Sheets жаңарту">
                 {syncState === "syncing" ? <Clock3 className="size-5 animate-spin" /> : syncState === "done" ? <Check className="size-5" /> : <FileSpreadsheet className="size-5" />}
-              </button>
+              </motion.button>
             </div>
-            <button onClick={sendManagerReport} disabled={reportState === "sending"} className="mt-2 flex w-full items-center justify-center gap-2 rounded-[20px] bg-gradient-to-br from-[#112b88] to-[#07133a] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-60">
+            <motion.button whileTap={{ scale: 0.97 }} onClick={sendManagerReport} disabled={reportState === "sending"} className="mt-2 flex w-full items-center justify-center gap-2 rounded-[20px] bg-gradient-to-br from-[#112b88] to-[#07133a] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-60">
               {reportState === "sending" ? <Clock3 className="size-5 animate-spin" /> : reportState === "sent" ? <Check className="size-5" /> : <Sparkles className="size-5" />}
               Басшылыққа есеп беру
-            </button>
+            </motion.button>
           </section>
         </section>
       </section>
 
-      {addOpen && (
-        <Modal title="Қызметкер қосу" onClose={() => setAddOpen(false)}>
-          {addError && <div className="mb-3"><Notice type="error" text={addError} /></div>}
-          <label className="mb-3 block">
-            <span className="form-label">Аты-жөні</span>
-            <input value={newName} onChange={(event) => setNewName(event.target.value)} className="form-input" placeholder="Мысалы: Айбек Нұрлан" />
-          </label>
-          <label className="block">
-            <span className="form-label">Рөлі / бригадасы</span>
-            <input value={newRole} onChange={(event) => setNewRole(event.target.value)} className="form-input" placeholder="Мысалы: Оператор, Қойма, Цех 1" />
-          </label>
-          <button onClick={addEmployee} disabled={!newName.trim() || savingEmployee} className="mt-4 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50">
-            {savingEmployee ? "Сақталып жатыр..." : "Қосу және сақтау"}
-          </button>
-        </Modal>
-      )}
+      <Toaster toasts={toasts} dismiss={dismissToast} />
 
-      {archiveOpen && (
-        <Modal title="Архив" onClose={() => setArchiveOpen(false)}>
-          <div className="space-y-2">
-            {state.archivedEmployees?.length ? state.archivedEmployees.map((employee) => (
-              <div key={employee.id} className="flex items-center justify-between rounded-[20px] bg-[#f4f7fc] px-4 py-3">
-                <div>
-                  <p className="font-black">{employee.name}</p>
-                  <p className="text-xs font-bold text-[#7a86a0]">{employee.role}</p>
-                </div>
-                <button onClick={() => restoreEmployee(employee.id)} className="grid size-10 place-items-center rounded-full bg-white text-[#0b1b5f] shadow-sm">
-                  <RotateCcw className="size-4" />
+      <AnimatePresence>
+        {addOpen && (
+          <Modal isDark={isDark} title="Қызметкер қосу" onClose={() => setAddOpen(false)}>
+            {addError && <div className="mb-3"><InlineError text={addError} /></div>}
+            <label className="mb-3 block">
+              <span className={cx("form-label", isDark && "form-label-dark")}>Аты-жөні</span>
+              <input value={newName} onChange={(event) => setNewName(event.target.value)} className={cx("form-input", isDark && "form-input-dark")} placeholder="Мысалы: Айбек Нұрлан" />
+            </label>
+            <label className="mb-3 block">
+              <span className={cx("form-label", isDark && "form-label-dark")}>Рөлі / бригадасы</span>
+              <input value={newRole} onChange={(event) => setNewRole(event.target.value)} className={cx("form-input", isDark && "form-input-dark")} placeholder="Мысалы: Оператор, Қойма, Цех 1" />
+            </label>
+            <div className="block">
+              <span className={cx("form-label", isDark && "form-label-dark")}>Жұмыс кестесі</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { haptic("selection"); setNewSchedule("standard"); }}
+                  className={cx(
+                    "rounded-[16px] px-3 py-3 text-left text-xs font-black ring-1 transition",
+                    newSchedule === "standard"
+                      ? "bg-[#0b1b5f] text-white ring-[#0b1b5f]"
+                      : isDark ? "bg-white/5 text-slate-200 ring-white/10" : "bg-white text-[#526176] ring-[#dfe6f2]",
+                  )}
+                >
+                  Стандарт
+                  <span className={cx("mt-1 block text-[10px] font-bold opacity-70", newSchedule === "standard" && "text-white/70")}>Дс — Жс толық күн</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { haptic("selection"); setNewSchedule("school-half"); }}
+                  className={cx(
+                    "rounded-[16px] px-3 py-3 text-left text-xs font-black ring-1 transition",
+                    newSchedule === "school-half"
+                      ? "bg-[#0b1b5f] text-white ring-[#0b1b5f]"
+                      : isDark ? "bg-white/5 text-slate-200 ring-white/10" : "bg-white text-[#526176] ring-[#dfe6f2]",
+                  )}
+                >
+                  Жартылай (мектеп)
+                  <span className={cx("mt-1 block text-[10px] font-bold opacity-70", newSchedule === "school-half" && "text-white/70")}>Дс-Жм жарты, Сб толық</span>
                 </button>
               </div>
-            )) : <p className="py-5 text-center text-sm font-bold text-[#7a86a0]">Архив бос</p>}
-          </div>
-        </Modal>
-      )}
+            </div>
+            <motion.button whileTap={{ scale: 0.97 }} onClick={addEmployee} disabled={!newName.trim() || savingEmployee} className="mt-4 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50">
+              {savingEmployee ? "Сақталып жатыр..." : "Қосу және сақтау"}
+            </motion.button>
+          </Modal>
+        )}
+
+        {archiveOpen && (
+          <Modal isDark={isDark} title="Архив" onClose={() => setArchiveOpen(false)}>
+            <div className="space-y-2">
+              {state.archivedEmployees?.length ? state.archivedEmployees.map((employee) => (
+                <div key={employee.id} className={cx("flex items-center justify-between rounded-[20px] px-4 py-3", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
+                  <div>
+                    <p className={cx("font-black", isDark ? "text-white" : "text-[#07122b]")}>{employee.name}</p>
+                    <p className={cx("text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{employee.role}</p>
+                  </div>
+                  <motion.button whileTap={{ scale: 0.9 }} onClick={() => restoreEmployee(employee.id)} className={cx("grid size-10 place-items-center rounded-full text-[#0b1b5f] shadow-sm", isDark ? "bg-white/10 text-white" : "bg-white")}>
+                    <RotateCcw className="size-4" />
+                  </motion.button>
+                </div>
+              )) : <p className={cx("py-5 text-center text-sm font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Архив бос</p>}
+            </div>
+          </Modal>
+        )}
+
+        {statsOpen && (
+          <Modal isDark={isDark} title="Айлық статистика" onClose={() => setStatsOpen(false)}>
+            <StatsView isDark={isDark} state={state} month={month} />
+          </Modal>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
@@ -602,76 +825,346 @@ function Metric({ icon: Icon, label, value }) {
     <div className="rounded-[20px] border border-white/18 bg-white/12 p-3 backdrop-blur">
       <Icon className="size-4 text-white/76" />
       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/52">{label}</p>
-      <p className="text-lg font-black">{value}</p>
+      <motion.p key={String(value)} initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-lg font-black">
+        {value}
+      </motion.p>
     </div>
   );
 }
 
-function Notice({ type, text }) {
-  const success = type === "success";
+function Toaster({ toasts, dismiss }) {
   return (
-    <div className={cx("flex items-start gap-2 rounded-[20px] px-4 py-3 text-sm font-black ring-1", success ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-rose-50 text-rose-800 ring-rose-100")}>
-      {success ? <Check className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
+    <div className="fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4 pointer-events-none">
+      <AnimatePresence>
+        {toasts.map((toast) => {
+          const success = toast.type === "success";
+          return (
+            <motion.div
+              key={toast.id}
+              initial={{ y: 60, opacity: 0, scale: 0.9 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 20, opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 380, damping: 28 }}
+              onClick={() => dismiss(toast.id)}
+              className={cx(
+                "pointer-events-auto flex max-w-[400px] items-start gap-2 rounded-[20px] px-4 py-3 text-sm font-black shadow-2xl ring-1 backdrop-blur",
+                success
+                  ? "bg-emerald-50/95 text-emerald-800 ring-emerald-100"
+                  : "bg-rose-50/95 text-rose-800 ring-rose-100",
+              )}
+            >
+              {success ? <Check className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
+              <span>{toast.text}</span>
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function InlineError({ text }) {
+  return (
+    <div className="flex items-start gap-2 rounded-[20px] bg-rose-50 px-4 py-3 text-sm font-black text-rose-800 ring-1 ring-rose-100">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
       <span>{text}</span>
     </div>
   );
 }
 
-function StatusPill({ meta, value }) {
+function StatusPill({ isDark, meta, value }) {
   const Icon = meta.Icon;
   return (
-    <div className={cx("rounded-2xl px-3 py-3 ring-1", meta.chip)}>
+    <div className={cx("rounded-2xl px-3 py-3 ring-1", isDark ? meta.chipDark : meta.chip)}>
       <div className="flex items-center justify-between gap-2">
         <Icon className="size-4 shrink-0" />
-        <span className="text-xl font-black">{value}</span>
+        <motion.span key={value} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-xl font-black">
+          {value}
+        </motion.span>
       </div>
       <p className="mt-1 text-xs font-black">{meta.label}</p>
     </div>
   );
 }
 
-function SmallStat({ meta, value }) {
+function SmallStat({ isDark, meta, value }) {
   const Icon = meta.Icon;
   return (
-    <div className={cx("rounded-2xl p-2 text-center ring-1", meta.chip)}>
+    <div className={cx("rounded-2xl p-2 text-center ring-1", isDark ? meta.chipDark : meta.chip)}>
       <Icon className="mx-auto size-4" />
-      <p className="mt-1 text-base font-black">{value}</p>
+      <motion.p key={value} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mt-1 text-base font-black">
+        {value}
+      </motion.p>
     </div>
   );
 }
 
-function StatusButton({ meta, onClick, disabled }) {
+function StatusButton({ meta, onClick, disabled, isCurrent, pending }) {
   const Icon = meta.Icon;
   return (
-    <button disabled={disabled} onClick={onClick} className={cx("rounded-[20px] bg-gradient-to-br px-3 py-4 text-left text-white shadow-xl disabled:opacity-40", meta.button)}>
+    <motion.button
+      whileTap={{ scale: 0.95 }}
+      animate={isCurrent ? { boxShadow: `0 0 0 3px ${meta.accent}55, 0 16px 30px rgba(0,0,0,0.18)` } : { boxShadow: "0 16px 30px rgba(0,0,0,0.10)" }}
+      disabled={disabled}
+      onClick={onClick}
+      className={cx("relative overflow-hidden rounded-[20px] bg-gradient-to-br px-3 py-4 text-left text-white disabled:opacity-40", meta.button)}
+    >
       <div className="flex items-center gap-2">
         <Icon className="size-5" />
         <span className="text-sm font-black">{meta.label}</span>
+        {isCurrent && <Check className="ml-auto size-4 opacity-90" />}
       </div>
       <p className="mt-1 text-xs font-bold text-white/70">{meta.caption}</p>
-    </button>
+      {pending && (
+        <motion.span
+          initial={{ x: "-100%" }}
+          animate={{ x: "200%" }}
+          transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+          className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent"
+        />
+      )}
+    </motion.button>
   );
 }
 
-function FilterChip({ active, children, onClick }) {
+function FilterChip({ isDark, active, children, onClick }) {
   return (
-    <button onClick={onClick} className={cx("shrink-0 rounded-full px-4 py-2 text-xs font-black ring-1", active ? "bg-[#0b1b5f] text-white ring-[#0b1b5f]" : "bg-white text-[#526176] ring-[#dfe6f2]")}>
+    <motion.button
+      whileTap={{ scale: 0.92 }}
+      onClick={onClick}
+      className={cx(
+        "shrink-0 rounded-full px-4 py-2 text-xs font-black ring-1 transition-colors",
+        active
+          ? "bg-[#0b1b5f] text-white ring-[#0b1b5f]"
+          : isDark
+            ? "bg-white/8 text-slate-200 ring-white/10"
+            : "bg-white text-[#526176] ring-[#dfe6f2]",
+      )}
+    >
       {children}
-    </button>
+    </motion.button>
   );
 }
 
-function Modal({ title, children, onClose }) {
+function Modal({ isDark, title, children, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-[#061133]/55 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-[430px] rounded-[30px] bg-white p-5 shadow-2xl">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 grid place-items-end bg-[#061133]/55 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 60, opacity: 0, scale: 0.96 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 80, opacity: 0, scale: 0.96 }}
+        transition={{ type: "spring", stiffness: 360, damping: 30 }}
+        onClick={(event) => event.stopPropagation()}
+        className={cx("w-full max-w-[430px] rounded-[30px] p-5 shadow-2xl", isDark ? "bg-[#0e1530] text-white" : "bg-white")}
+      >
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-xl font-black">{title}</h3>
-          <button onClick={onClose} className="grid size-10 place-items-center rounded-full bg-[#f4f7fc] text-[#64748b]" aria-label="Жабу">
+          <h3 className={cx("text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{title}</h3>
+          <motion.button whileTap={{ scale: 0.9 }} onClick={onClose} className={cx("grid size-10 place-items-center rounded-full", isDark ? "bg-white/10 text-slate-300" : "bg-[#f4f7fc] text-[#64748b]")} aria-label="Жабу">
             <X className="size-5" />
-          </button>
+          </motion.button>
         </div>
         {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function SkeletonCard({ isDark }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between">
+        <div className="space-y-2">
+          <div className={cx("h-3 w-20 rounded-full animate-pulse", isDark ? "bg-white/10" : "bg-slate-200")} />
+          <div className={cx("h-5 w-40 rounded-full animate-pulse", isDark ? "bg-white/15" : "bg-slate-300")} />
+        </div>
+        <div className={cx("size-11 rounded-2xl animate-pulse", isDark ? "bg-white/10" : "bg-slate-200")} />
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className={cx("h-16 rounded-2xl animate-pulse", isDark ? "bg-white/10" : "bg-slate-200")} />
+        ))}
+      </div>
+      <div className={cx("h-12 rounded-[22px] animate-pulse", isDark ? "bg-white/10" : "bg-slate-200")} />
+      <div className="grid grid-cols-7 gap-1.5">
+        {Array.from({ length: 35 }).map((_, i) => (
+          <div key={i} className={cx("aspect-square rounded-[16px] animate-pulse", isDark ? "bg-white/8" : "bg-slate-200/70")} style={{ animationDelay: `${i * 12}ms` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveClock({ now }) {
+  const time = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const date = now.toLocaleDateString("kk-KZ", { day: "numeric", month: "long", weekday: "short" });
+  return (
+    <div className="rounded-2xl border border-white/25 bg-white/12 px-3 py-1.5 text-center backdrop-blur">
+      <p className="font-mono text-sm font-black leading-none tracking-tight text-white tabular-nums">{time}</p>
+      <p className="mt-0.5 text-[9px] font-bold uppercase leading-none tracking-[0.14em] text-white/70">{date}</p>
+    </div>
+  );
+}
+
+function StatsView({ isDark, state, month }) {
+  const employees = state.employees || [];
+  const days = daysInMonth(month);
+  const todayDay = state.today?.startsWith(month) ? Number(state.today.slice(-2)) : null;
+
+  const { trend, totals } = useMemo(() => {
+    const trendArr = [];
+    for (let day = 1; day <= days; day += 1) {
+      const date = `${month}-${String(day).padStart(2, "0")}`;
+      const records = state.attendance?.[date] || {};
+      let present = 0;
+      let half = 0;
+      for (const emp of employees) {
+        const status = records[emp.id]?.status;
+        if (status === "present") present += 1;
+        else if (status === "half") half += 0.5;
+      }
+      trendArr.push({ day, value: present + half });
+    }
+    const totalsArr = employees.map((emp) => {
+      let present = 0;
+      let half = 0;
+      for (let day = 1; day <= days; day += 1) {
+        const date = `${month}-${String(day).padStart(2, "0")}`;
+        const status = state.attendance?.[date]?.[emp.id]?.status;
+        if (status === "present") present += 1;
+        else if (status === "half") half += 1;
+      }
+      return { employee: emp, present, half, days: present + half * 0.5 };
+    }).sort((a, b) => b.days - a.days || a.employee.name.localeCompare(b.employee.name));
+    return { trend: trendArr, totals: totalsArr };
+  }, [employees, state.attendance, month, days]);
+
+  const max = Math.max(1, ...trend.map((p) => p.value));
+  const topDays = totals[0]?.days || 0;
+
+  function formatDays(value) {
+    return value % 1 === 0 ? String(value) : value.toFixed(1);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className={cx("rounded-[18px] px-3 py-2.5 ring-1", isDark ? "bg-white/5 ring-white/10" : "bg-white ring-[#e3e9f3]")}>
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className={cx("text-[10px] font-black uppercase tracking-[0.16em]", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+            {monthLabel(month)}
+          </p>
+          {todayDay && (
+            <span className={cx("text-[10px] font-bold", isDark ? "text-cyan-300" : "text-[#0b1b5f]")}>
+              бүгін: {todayDay}-күн
+            </span>
+          )}
+        </div>
+        <div className="flex h-14 items-end gap-[2px]">
+          {trend.map((p) => {
+            const isToday = p.day === todayDay;
+            const ratio = p.value / max;
+            return (
+              <motion.div
+                key={p.day}
+                initial={{ height: 0 }}
+                animate={{ height: `${Math.max(ratio * 100, p.value ? 8 : 3)}%` }}
+                transition={{ delay: p.day * 0.008, duration: 0.4 }}
+                title={`${p.day}-күн: ${p.value}`}
+                className={cx(
+                  "flex-1 rounded-t-[3px]",
+                  isToday
+                    ? "bg-gradient-to-t from-[#0b1b5f] to-[#22d3ee]"
+                    : p.value
+                      ? "bg-gradient-to-t from-[#1e3a8a] to-[#60a5fa]"
+                      : isDark ? "bg-white/8" : "bg-[#eaeff7]",
+                )}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between px-1">
+          <p className={cx("eyebrow", isDark && "eyebrow-dark")}>Барлық қызметкер</p>
+          <span className={cx("text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{totals.length} адам</span>
+        </div>
+        <div className="space-y-1.5">
+          {totals.length === 0 && (
+            <p className={cx("rounded-2xl px-4 py-6 text-center text-sm font-bold", isDark ? "bg-white/5 text-slate-400" : "bg-[#f4f7fc] text-[#7a86a0]")}>
+              Әзірге дерек жоқ
+            </p>
+          )}
+          {totals.map((row, index) => {
+            const ratio = topDays > 0 ? row.days / topDays : 0;
+            return (
+              <motion.div
+                key={row.employee.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.025 }}
+                className={cx(
+                  "relative overflow-hidden rounded-[18px] px-3 py-2.5 ring-1",
+                  isDark ? "bg-white/5 ring-white/10" : "bg-white ring-[#eaeff7]",
+                )}
+              >
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${ratio * 100}%` }}
+                  transition={{ delay: 0.1 + index * 0.025, duration: 0.55, ease: [0.22, 0.61, 0.36, 1] }}
+                  className={cx(
+                    "absolute inset-y-0 left-0",
+                    isDark ? "bg-gradient-to-r from-[#1e3a8a]/40 to-transparent" : "bg-gradient-to-r from-[#dbe5ff] to-transparent",
+                  )}
+                />
+                <div className="relative flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className={cx(
+                      "grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-black",
+                      index === 0
+                        ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-[0_4px_12px_rgba(245,158,11,0.35)]"
+                        : index === 1
+                          ? "bg-gradient-to-br from-slate-300 to-slate-500 text-white"
+                          : index === 2
+                            ? "bg-gradient-to-br from-orange-300 to-orange-600 text-white"
+                            : isDark
+                              ? "bg-white/10 text-slate-300"
+                              : "bg-[#eef3ff] text-[#0b1b5f]",
+                    )}>
+                      {index + 1}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className={cx("truncate text-sm font-black", isDark ? "text-white" : "text-[#07122b]")}>{row.employee.name}</p>
+                        {row.employee.schedule === "school-half" && (
+                          <span className={cx("shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider", isDark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800")}>
+                            Жарт.
+                          </span>
+                        )}
+                      </div>
+                      <p className={cx("truncate text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                        {row.employee.role || "Қызметкер"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end leading-none">
+                    <span className={cx("text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>
+                      {formatDays(row.days)}
+                    </span>
+                    <span className={cx("mt-0.5 text-[10px] font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                      күн
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

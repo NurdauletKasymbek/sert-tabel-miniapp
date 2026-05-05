@@ -7,7 +7,25 @@ const STATUSES = {
   dayoff: { label: "Демалыс" },
 };
 
-const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні"];
+const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні", "Кесте"];
+
+const SCHEDULE_LABELS = {
+  standard: "Стандарт",
+  "school-half": "Жартылай (мектеп)",
+};
+
+function labelToSchedule(label) {
+  const value = String(label || "").trim();
+  if (!value) return "standard";
+  for (const [key, name] of Object.entries(SCHEDULE_LABELS)) {
+    if (name === value) return key;
+  }
+  return value === "school-half" ? "school-half" : "standard";
+}
+
+function scheduleToLabel(schedule) {
+  return SCHEDULE_LABELS[schedule] || SCHEDULE_LABELS.standard;
+}
 const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні", "Рөлі", "Белгі", "Уақыт", "Жаңартылды"];
 const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"];
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
@@ -233,7 +251,7 @@ async function ensureSheets() {
 
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 
-  await ensureHeader(a1(SHEETS.employees, "A1:F1"), EMPLOYEE_HEADERS);
+  await ensureHeader(a1(SHEETS.employees, "A1:G1"), EMPLOYEE_HEADERS);
   await ensureHeader(a1(SHEETS.attendance, "A1:G1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
@@ -270,6 +288,7 @@ function rowToEmployee(row) {
     status: row[3] === "Архив" ? "archived" : "active",
     createdAt: row[4] || "",
     archivedAt: row[5] || "",
+    schedule: labelToSchedule(row[6]),
   };
 }
 
@@ -281,6 +300,7 @@ function employeeToRow(employee) {
     employee.status === "archived" ? "Архив" : "Белсенді",
     employee.createdAt || "",
     employee.archivedAt || "",
+    scheduleToLabel(employee.schedule || "standard"),
   ];
 }
 
@@ -307,7 +327,7 @@ function statusToLabel(status) {
 export async function loadStore() {
   await ensureSheets();
   const [employeeRows, attendanceRows, historyRows] = await Promise.all([
-    getValues(a1(SHEETS.employees, "A2:F1000")),
+    getValues(a1(SHEETS.employees, "A2:G1000")),
     getValues(a1(SHEETS.attendance, "A2:G5000")),
     getValues(a1(SHEETS.history, "A2:G5000")),
   ]);
@@ -478,8 +498,8 @@ export function nextEmployeeId(employees) {
 
 export async function saveEmployees(employees) {
   await ensureSheets();
-  await clearRange(a1(SHEETS.employees, "A2:F1000"));
-  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:F1000"), employees.map(employeeToRow));
+  await clearRange(a1(SHEETS.employees, "A2:G1000"));
+  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:G1000"), employees.map(employeeToRow));
 }
 
 export async function saveAttendance(attendance) {

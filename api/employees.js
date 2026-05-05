@@ -13,6 +13,7 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "Қызметкер аты керек" });
       return;
     }
+    const schedule = body.schedule === "school-half" ? "school-half" : "standard";
     const employee = {
       id: nextEmployeeId(store.employees),
       name,
@@ -20,6 +21,7 @@ export default async function handler(req, res) {
       status: "active",
       createdAt: new Date().toISOString(),
       archivedAt: "",
+      schedule,
     };
     store.employees.push(employee);
     await saveEmployees(store.employees);

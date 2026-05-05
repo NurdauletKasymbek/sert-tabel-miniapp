@@ -6,6 +6,32 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #07122b;
   background: #07101f;
+
+  --bg-canvas: #07101f;
+  --shell-bg: #f5f7fb;
+  --card-bg: rgba(255, 255, 255, 0.92);
+  --card-border: #dfe6f2;
+  --card-shadow: 0 18px 48px rgba(15, 31, 76, 0.08);
+  --text-primary: #07122b;
+  --text-soft: #7a86a0;
+  --eyebrow: #8b96ad;
+  --hairline: rgba(11, 27, 95, 0.04);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #f0f4ff;
+  background: #04060d;
+
+  --bg-canvas: #04060d;
+  --shell-bg: #0a1126;
+  --card-bg: rgba(20, 26, 44, 0.86);
+  --card-border: rgba(255, 255, 255, 0.06);
+  --card-shadow: 0 22px 50px rgba(0, 0, 0, 0.5);
+  --text-primary: #f0f4ff;
+  --text-soft: #94a3b8;
+  --eyebrow: #94a3b8;
+  --hairline: rgba(255, 255, 255, 0.04);
 }
 
 * {
@@ -20,8 +46,9 @@ body {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
     linear-gradient(45deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(180deg, #07101f, #101b31 52%, #07101f);
+    linear-gradient(180deg, var(--bg-canvas), color-mix(in srgb, var(--bg-canvas) 70%, #101b31 30%) 52%, var(--bg-canvas));
   background-size: 28px 28px, 28px 28px, auto;
+  transition: background-color 250ms ease;
 }
 
 button,
@@ -55,7 +82,13 @@ button {
   pointer-events: none;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.92), rgba(245,247,251,0.96)),
-    repeating-linear-gradient(135deg, rgba(11,27,95,0.04) 0 1px, transparent 1px 14px);
+    repeating-linear-gradient(135deg, var(--hairline) 0 1px, transparent 1px 14px);
+}
+
+[data-theme="dark"] .app-shell::before {
+  background:
+    linear-gradient(180deg, rgba(10,17,38,0.94), rgba(10,17,38,0.98)),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 14px);
 }
 
 .app-shell > * {
@@ -66,10 +99,11 @@ button {
 .control-panel,
 .main-card,
 .action-dock {
-  border: 1px solid #dfe6f2;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18px 48px rgba(15, 31, 76, 0.08);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
   backdrop-filter: blur(18px);
+  transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
 }
 
 .premium-search {
@@ -102,14 +136,26 @@ button {
   padding: 16px;
 }
 
+.control-panel-dark,
+.main-card-dark,
+.action-dock-dark {
+  background: rgba(20, 26, 44, 0.86);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
 .eyebrow,
 .form-label {
   display: block;
-  color: #8b96ad;
+  color: var(--eyebrow);
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.eyebrow-dark,
+.form-label-dark {
+  color: #94a3b8;
 }
 
 .control-action,
@@ -140,6 +186,14 @@ button {
   box-shadow: 0 8px 22px rgba(15, 31, 76, 0.08);
 }
 
+.sheet-button-dark,
+.soft-icon-dark,
+.nav-round-dark {
+  background: rgba(255, 255, 255, 0.08);
+  color: #c7d2fe;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
 .sheet-button {
   width: 56px;
   height: 56px;
@@ -159,7 +213,12 @@ button {
   background: white;
 }
 
+.nav-round-dark {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .employee-tab {
+  position: relative;
   flex-shrink: 0;
   min-width: 132px;
   border: 1px solid #dfe6f2;
@@ -169,13 +228,24 @@ button {
   padding: 12px 14px;
   text-align: left;
   box-shadow: 0 12px 28px rgba(15, 31, 76, 0.05);
+  transition: border-color 200ms ease, color 200ms ease;
+}
+
+.employee-tab-dark {
+  background: rgba(20, 26, 44, 0.7);
+  border-color: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
 }
 
 .employee-tab-active {
   border-color: #0b1b5f;
   color: white;
-  background: linear-gradient(145deg, #102a77, #07133a);
   box-shadow: 0 18px 40px rgba(11, 27, 95, 0.26);
+}
+
+.employee-tab-active-dark {
+  border-color: #3b5fe2;
 }
 
 .calendar-day {
@@ -186,7 +256,12 @@ button {
   color: #24314a;
   font-size: 14px;
   font-weight: 900;
-  transition: transform 160ms ease, box-shadow 160ms ease;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 200ms ease;
+}
+
+.calendar-day-dark {
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
 }
 
 .calendar-day:active {
@@ -194,12 +269,47 @@ button {
 }
 
 .calendar-marked {
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px #dfe6f2;
+  box-shadow: inset 0 0 0 1px var(--card-border);
 }
 
 .calendar-active {
   box-shadow: 0 0 0 2px #0b1b5f, 0 0 0 5px #ffffff;
+  z-index: 1;
+}
+
+.calendar-active-dark {
+  box-shadow: 0 0 0 2px #3b5fe2, 0 0 0 5px #0a1126;
+}
+
+.calendar-multi-selected {
+  box-shadow: 0 0 0 2px #0b1b5f;
+  background: rgba(11, 27, 95, 0.08);
+}
+
+[data-theme="dark"] .calendar-multi-selected {
+  box-shadow: 0 0 0 2px #3b5fe2;
+  background: rgba(59, 95, 226, 0.18);
+}
+
+.calendar-today::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(11, 27, 95, 0.18), rgba(59, 95, 226, 0.32));
+  z-index: -1;
+  filter: blur(6px);
+  opacity: 0.7;
+  animation: glow 2.4s ease-in-out infinite alternate;
+}
+
+[data-theme="dark"] .calendar-today::before {
+  background: linear-gradient(135deg, rgba(59, 95, 226, 0.5), rgba(99, 102, 241, 0.7));
+}
+
+@keyframes glow {
+  0% { opacity: 0.45; }
+  100% { opacity: 0.85; }
 }
 
 .form-input {
@@ -210,11 +320,28 @@ button {
   font-weight: 800;
   outline: none;
   background: white;
+  color: #07122b;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.form-input-dark {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f0f4ff;
+}
+
+.form-input-dark::placeholder {
+  color: #64748b;
 }
 
 .form-input:focus {
   border-color: #0b1b5f;
   box-shadow: 0 0 0 4px rgba(11, 27, 95, 0.08);
+}
+
+.form-input-dark:focus {
+  border-color: #3b5fe2;
+  box-shadow: 0 0 0 4px rgba(59, 95, 226, 0.18);
 }
 
 .line-clamp-2 {
@@ -230,4 +357,14 @@ button {
 
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

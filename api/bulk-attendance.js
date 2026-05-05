@@ -19,7 +19,6 @@ export default async function handler(req, res) {
     }
     assertNotFutureDate(date);
 
-    const label = statusToLabel(status);
     const targets = store.employees.filter((employee) => employee.status !== "archived" && (!role || employee.role === role));
     const targetIds = new Set(targets.map((employee) => employee.id));
     const previousByEmployee = new Map();
@@ -31,12 +30,17 @@ export default async function handler(req, res) {
     // Remove previous records first; bulk marking should also replace mistaken marks.
     store.attendance = store.attendance.filter((row) => !(row.date === date && targetIds.has(row.employeeId)));
 
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    const isWeekend = weekday === 0 || weekday === 6;
+
     const now = new Date().toISOString();
     const time = currentTime();
     const history = [];
     for (const employee of targets) {
       const oldLabel = previousByEmployee.get(employee.id) || "";
       const employeeRole = employee.role || "Қызметкер";
+      const employeeStatus = employee.schedule === "school-half" && !isWeekend ? "half" : status;
+      const label = statusToLabel(employeeStatus);
       store.attendance.push({
         date,
         employeeId: employee.id,
