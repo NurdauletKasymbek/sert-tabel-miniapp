@@ -128,6 +128,7 @@ async function api(path, options = {}) {
 }
 
 function emptyState() {
+  const today = new Date().toISOString().slice(0, 10);
   return {
     employees: [],
     archivedEmployees: [],
@@ -135,8 +136,8 @@ function emptyState() {
     roles: [],
     attendance: {},
     todayControl: { present: 0, half: 0, absent: 0, dayoff: 0, unmarked: 0, total: 0 },
-    month: "2026-05",
-    today: "2026-05-03",
+    month: today.slice(0, 7),
+    today,
     sheetSync: null,
   };
 }
@@ -163,7 +164,7 @@ function App() {
   const [state, setState] = useState(emptyState);
   const [selectedId, setSelectedId] = useState(null);
   const [selectedDay, setSelectedDay] = useState(1);
-  const [month, setMonth] = useState("2026-05");
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [query, setQuery] = useState("");
   const [syncState, setSyncState] = useState("ready");
   const [loading, setLoading] = useState(true);
@@ -254,8 +255,9 @@ function App() {
       setLoading(true);
       const next = await api("/api/state");
       setState(next);
-      setMonth(next.month || "2026-05");
-      setSelectedDay(Number((next.today || "2026-05-01").slice(-2)));
+      const fallbackToday = new Date().toISOString().slice(0, 10);
+      setMonth((next.month || fallbackToday.slice(0, 7)));
+      setSelectedDay(Number((next.today || fallbackToday).slice(-2)));
       if (!selectedId && next.employees?.length) setSelectedId(next.employees[0].id);
     } catch (err) {
       showToast("error", err.message);
@@ -506,7 +508,12 @@ function App() {
           <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(135deg,rgba(255,255,255,.22)_1px,transparent_1px),linear-gradient(45deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:22px_22px]" />
 
           <div className="relative flex items-center justify-between">
-            <motion.button whileTap={{ scale: 0.92 }} className="glass-icon text-white" aria-label="Артқа">
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => { haptic("light"); getTelegram()?.close?.(); }}
+              className="glass-icon text-white"
+              aria-label="Артқа"
+            >
               <ArrowLeft className="size-5" />
             </motion.button>
             <LiveClock now={now} />
