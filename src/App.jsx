@@ -870,6 +870,43 @@ function App() {
                   showToast("success", "Сілтеме көшірілді");
                 }).catch(() => showToast("error", "Көшіру мүмкін болмады"));
               }}
+              onScan={async () => {
+                const tg = getTelegram();
+                if (!tg?.showScanQrPopup) {
+                  haptic("error");
+                  showToast("error", "Telegram-ның жаңа нұсқасы керек.");
+                  return;
+                }
+                haptic("light");
+                tg.showScanQrPopup({ text: "Жұмысшының QR кодын сканерлеңіз" }, (raw) => {
+                  try {
+                    const text = String(raw || "");
+                    const match = text.match(/start=in_([^\s&]+)/i);
+                    const employeeId = match ? decodeURIComponent(match[1]) : "";
+                    if (!employeeId) {
+                      haptic("error");
+                      showToast("error", "QR танылмады");
+                      return false;
+                    }
+                    const today = new Date().toISOString().slice(0, 10);
+                    api("/api/attendance", {
+                      method: "POST",
+                      body: JSON.stringify({ date: today, employeeId, status: "present" }),
+                    }).then((next) => {
+                      setState(next);
+                      haptic("success");
+                      const emp = (next.employees || []).find((e) => e.id === employeeId);
+                      showToast("success", `${emp?.name || "Қызметкер"}: жұмыста деп белгіленді.`);
+                    }).catch((err) => {
+                      haptic("error");
+                      showToast("error", err.message);
+                    });
+                    return true;
+                  } catch {
+                    return true;
+                  }
+                });
+              }}
             />
           </Modal>
         )}
@@ -1058,7 +1095,7 @@ function SkeletonCard({ isDark }) {
   );
 }
 
-function QrView({ isDark, employee, botUsername, onCopy }) {
+function QrView({ isDark, employee, botUsername, onCopy, onScan }) {
   const link = botUsername
     ? `https://t.me/${botUsername}?start=in_${employee.id}`
     : "";
@@ -1069,15 +1106,29 @@ function QrView({ isDark, employee, botUsername, onCopy }) {
         <p className={cx("mt-1 text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{employee.name}</p>
       </div>
       {link ? (
-        <div className="flex justify-center">
-          <div className="rounded-3xl bg-white p-4 shadow-[0_18px_40px_rgba(11,27,95,0.18)]">
+        <button
+          type="button"
+          onClick={onScan}
+          className="flex w-full justify-center"
+          aria-label="Камерамен сканерлеу"
+        >
+          <div className="rounded-3xl bg-white p-4 shadow-[0_18px_40px_rgba(11,27,95,0.18)] transition active:scale-95">
             <QRCodeSVG value={link} size={220} bgColor="#ffffff" fgColor="#07122b" level="M" includeMargin={false} />
           </div>
-        </div>
+        </button>
       ) : (
         <div className={cx("rounded-2xl px-4 py-6 text-center text-sm font-bold", isDark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-800")}>
           Бот username алынбады. TELEGRAM_BOT_TOKEN баптауын тексеріңіз.
         </div>
+      )}
+      {link && (
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={onScan}
+          className="flex w-full items-center justify-center gap-2 rounded-[16px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
+        >
+          📷 Камерамен сканерлеу
+        </motion.button>
       )}
       {link && (
         <div className={cx("rounded-2xl px-3 py-3", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
@@ -1086,15 +1137,17 @@ function QrView({ isDark, employee, botUsername, onCopy }) {
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={() => onCopy(link)}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
+            className={cx("mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] px-4 py-3 text-sm font-black", isDark ? "bg-white/10 text-white" : "bg-[#e3eaff] text-[#0b1b5f]")}
           >
             <Copy className="size-4" />
-            Көшіру
+            Сілтемені көшіру
           </motion.button>
         </div>
       )}
       <div className={cx("rounded-2xl px-4 py-3 text-xs font-bold leading-relaxed", isDark ? "bg-white/5 text-slate-300" : "bg-[#eef3ff] text-[#0b1b5f]")}>
-        QR-ды басып шығарып жұмыс орнына жабыстырыңыз. Қызметкер сканерлесе, бот ашылып «Мен келдім» түймесін көрсетеді.
+        QR-ды басып шығарып жұмыс орнына жабыстырыңыз. Қызметкер өз телефонымен сканерлеп, ботта «Мен келдім» басады.
+        <br /><br />
+        Немесе QR-ды басып, осы Mini App ішінде басқа қызметкердің QR-ын камерамен сканерлей аласыз.
       </div>
     </div>
   );
