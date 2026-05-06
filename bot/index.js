@@ -712,6 +712,12 @@ async function handleMessage(message) {
   const text = message.text?.trim();
   if (!text) return;
 
+  if (text.startsWith("/start in_") || text.startsWith("/start checkin_")) {
+    const arg = text.split(" ").slice(1).join(" ").trim();
+    await handleCheckinStart(chatId, message.from, arg);
+    return;
+  }
+
   if (!isAdmin(userId)) {
     await sendMessage(chatId, "Бұл бот тек жауапты адамға арналған. Админге өз Telegram ID-ыңызды жіберіңіз: " + userId);
     return;
@@ -727,11 +733,101 @@ async function handleMessage(message) {
   await sendMessage(chatId, "Барлық басқару Mini App ішінде. Бұл бот тек хабарлама алу үшін қалдырылды.", { reply_markup: mainKeyboard() });
 }
 
+async function fetchApiState() {
+  if (!MINI_APP_URL) throw new Error("MINI_APP_URL орнатылмаған");
+  const response = await fetch(`${MINI_APP_URL}/api/state`);
+  if (!response.ok) throw new Error(`API қатесі: ${response.status}`);
+  return response.json();
+}
+
+async function postApiAttendance(payload) {
+  if (!MINI_APP_URL) throw new Error("MINI_APP_URL орнатылмаған");
+  const response = await fetch(`${MINI_APP_URL}/api/attendance`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
+  return result;
+}
+
+async function handleCheckinStart(chatId, fromUser, arg) {
+  const employeeId = arg.replace(/^(in_|checkin_)/, "").trim();
+  if (!employeeId) {
+    await sendMessage(chatId, "QR код қате. Жауаптыға хабарласыңыз.");
+    return;
+  }
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await sendMessage(chatId, `Жүйеге қосылу мүмкін болмады: ${error.message}`);
+    return;
+  }
+  const employee = [...(state.employees || []), ...(state.archivedEmployees || [])].find((emp) => emp.id === employeeId);
+  if (!employee) {
+    await sendMessage(chatId, "Қызметкер табылмады. Жауаптыға хабарласыңыз.");
+    return;
+  }
+  const today = state.today;
+  const existing = state.attendance?.[today]?.[employeeId];
+  const greeting = fromUser?.first_name ? `Сәлем, ${escapeHtml(fromUser.first_name)}!` : "Сәлем!";
+  const lines = [
+    greeting,
+    "",
+    `<b>${escapeHtml(employee.name)}</b> (${escapeHtml(employee.role || "Қызметкер")})`,
+    `Бүгін: <b>${today}</b>`,
+  ];
+  if (existing?.status === "present") {
+    lines.push("", `✅ Сіз <b>${existing.time || ""}</b> кезінде белгіленгенсіз.`);
+  } else {
+    lines.push("", "Жұмысқа келдіңіз бе? Растаңыз:");
+  }
+  await sendMessage(chatId, lines.join("\n"), {
+    reply_markup: { inline_keyboard: [[{ text: existing?.status === "present" ? "Қайта растау" : "✅ Иә, келдім", callback_data: `checkin:${employeeId}` }]] },
+  });
+}
+
+async function handleCheckinCallback(callback, employeeId) {
+  const chatId = callback.message.chat.id;
+  const messageId = callback.message.message_id;
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await answerCallback(callback.id, "Қате");
+    await sendMessage(chatId, `Жүйеге қосылу мүмкін болмады: ${error.message}`);
+    return;
+  }
+  const employee = [...(state.employees || []), ...(state.archivedEmployees || [])].find((emp) => emp.id === employeeId);
+  if (!employee) {
+    await answerCallback(callback.id, "Қызметкер табылмады");
+    return;
+  }
+  const today = state.today;
+  try {
+    await postApiAttendance({ date: today, employeeId, status: "present" });
+  } catch (error) {
+    await answerCallback(callback.id, "Сақталмады");
+    await sendMessage(chatId, `Қате: ${error.message}`);
+    return;
+  }
+  const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  await answerCallback(callback.id, "Белгіленді ✅");
+  await editMessage(chatId, messageId, `✅ <b>${escapeHtml(employee.name)}</b>\nБүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.`, { reply_markup: { inline_keyboard: [] } });
+}
+
 async function handleCallback(callback) {
   const userId = String(callback.from.id);
   const chatId = callback.message.chat.id;
   const messageId = callback.message.message_id;
   const dataValue = callback.data || "";
+
+  if (dataValue.startsWith("checkin:")) {
+    await handleCheckinCallback(callback, dataValue.slice("checkin:".length));
+    return;
+  }
 
   if (!isAdmin(userId)) {
     await answerCallback(callback.id, "Рұқсат жоқ");

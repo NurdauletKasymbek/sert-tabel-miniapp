@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   BarChart3,
   BriefcaseBusiness,
+  QrCode,
+  Copy,
   CalendarCheck2,
   CalendarDays,
   Check,
@@ -25,6 +27,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
+import { QRCodeSVG } from "qrcode.react";
 
 const statusMeta = {
   present: {
@@ -177,6 +180,7 @@ function App() {
   const [theme, setTheme] = useState("light");
   const [pendingStatus, setPendingStatus] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [qrEmployee, setQrEmployee] = useState(null);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -632,9 +636,14 @@ function App() {
                       <p className={cx("eyebrow", isDark && "eyebrow-dark")}>{selected.role || "Қызметкер"}</p>
                       <h2 className={cx("mt-1 text-2xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{selected.name}</h2>
                     </div>
-                    <motion.button whileTap={{ scale: 0.92 }} onClick={archiveSelected} className={cx("soft-icon", isDark && "soft-icon-dark")} aria-label="Архивке жіберу">
-                      <Archive className="size-5" />
-                    </motion.button>
+                    <div className="flex items-center gap-2">
+                      <motion.button whileTap={{ scale: 0.92 }} onClick={() => { haptic("light"); setQrEmployee(selected); }} className={cx("soft-icon", isDark && "soft-icon-dark")} aria-label="QR көрсету">
+                        <QrCode className="size-5" />
+                      </motion.button>
+                      <motion.button whileTap={{ scale: 0.92 }} onClick={archiveSelected} className={cx("soft-icon", isDark && "soft-icon-dark")} aria-label="Архивке жіберу">
+                        <Archive className="size-5" />
+                      </motion.button>
+                    </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-4 gap-2">
@@ -813,6 +822,22 @@ function App() {
         {statsOpen && (
           <Modal isDark={isDark} title="Айлық статистика" onClose={() => setStatsOpen(false)}>
             <StatsView isDark={isDark} state={state} month={month} />
+          </Modal>
+        )}
+
+        {qrEmployee && (
+          <Modal isDark={isDark} title="QR — белгі қою" onClose={() => setQrEmployee(null)}>
+            <QrView
+              isDark={isDark}
+              employee={qrEmployee}
+              botUsername={state.botUsername || ""}
+              onCopy={(text) => {
+                navigator.clipboard?.writeText(text).then(() => {
+                  haptic("success");
+                  showToast("success", "Сілтеме көшірілді");
+                }).catch(() => showToast("error", "Көшіру мүмкін болмады"));
+              }}
+            />
           </Modal>
         )}
       </AnimatePresence>
@@ -995,6 +1020,48 @@ function SkeletonCard({ isDark }) {
         {Array.from({ length: 35 }).map((_, i) => (
           <div key={i} className={cx("aspect-square rounded-[16px] animate-pulse", isDark ? "bg-white/8" : "bg-slate-200/70")} style={{ animationDelay: `${i * 12}ms` }} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function QrView({ isDark, employee, botUsername, onCopy }) {
+  const link = botUsername
+    ? `https://t.me/${botUsername}?start=in_${employee.id}`
+    : "";
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <p className={cx("text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{employee.role || "Қызметкер"}</p>
+        <p className={cx("mt-1 text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{employee.name}</p>
+      </div>
+      {link ? (
+        <div className="flex justify-center">
+          <div className="rounded-3xl bg-white p-4 shadow-[0_18px_40px_rgba(11,27,95,0.18)]">
+            <QRCodeSVG value={link} size={220} bgColor="#ffffff" fgColor="#07122b" level="M" includeMargin={false} />
+          </div>
+        </div>
+      ) : (
+        <div className={cx("rounded-2xl px-4 py-6 text-center text-sm font-bold", isDark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-800")}>
+          Бот username алынбады. TELEGRAM_BOT_TOKEN баптауын тексеріңіз.
+        </div>
+      )}
+      {link && (
+        <div className={cx("rounded-2xl px-3 py-3", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
+          <p className={cx("mb-1 text-[10px] font-black uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Сілтеме</p>
+          <p className={cx("break-all font-mono text-[11px] font-bold", isDark ? "text-slate-200" : "text-[#07122b]")}>{link}</p>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => onCopy(link)}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
+          >
+            <Copy className="size-4" />
+            Көшіру
+          </motion.button>
+        </div>
+      )}
+      <div className={cx("rounded-2xl px-4 py-3 text-xs font-bold leading-relaxed", isDark ? "bg-white/5 text-slate-300" : "bg-[#eef3ff] text-[#0b1b5f]")}>
+        QR-ды басып шығарып жұмыс орнына жабыстырыңыз. Қызметкер сканерлесе, бот ашылып «Мен келдім» түймесін көрсетеді.
       </div>
     </div>
   );
