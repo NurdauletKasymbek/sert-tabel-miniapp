@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import QRCode from "qrcode";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_PATH = path.join(__dirname, "data.json");
@@ -240,6 +241,21 @@ async function sendDocument(chatId, fileName, content, caption) {
   const response = await fetch(`${API_URL}/sendDocument`, { method: "POST", body: form });
   const result = await response.json();
   if (!result.ok) throw new Error(result.description || "CSV жіберілмеді");
+}
+
+async function sendPhoto(chatId, buffer, caption, extra = {}) {
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  if (caption) {
+    form.append("caption", caption);
+    form.append("parse_mode", "HTML");
+  }
+  form.append("photo", new Blob([buffer], { type: "image/png" }), "qr.png");
+  if (extra.reply_markup) form.append("reply_markup", JSON.stringify(extra.reply_markup));
+  const response = await fetch(`${API_URL}/sendPhoto`, { method: "POST", body: form });
+  const result = await response.json();
+  if (!result.ok) throw new Error(result.description || "Сурет жіберілмеді");
+  return result.result;
 }
 
 function activeEmployees(data) {
@@ -711,42 +727,291 @@ async function handleAdminCommand(message, data, command, args) {
   return false;
 }
 
+function workerKeyboard() {
+  return {
+    keyboard: [
+      [{ text: "📍 Мен келдім", request_location: true }],
+      [{ text: "📅 Менің табелім" }, { text: "📊 Осы ай" }],
+    ],
+    resize_keyboard: true,
+  };
+}
+
+let cachedBotUsername = "";
+async function getBotUsernameLocal() {
+  if (cachedBotUsername) return cachedBotUsername;
+  try {
+    const me = await telegram("getMe", {});
+    cachedBotUsername = me.username || "";
+  } catch {
+    cachedBotUsername = "";
+  }
+  return cachedBotUsername;
+}
+
+function findEmployeeByTelegramId(state, userId) {
+  const id = String(userId);
+  const all = [...(state.employees || []), ...(state.archivedEmployees || [])];
+  return all.find((emp) => String(emp.telegramId || "") === id);
+}
+
 async function handleMessage(message) {
   const chatId = message.chat.id;
   const userId = String(message.from?.id || "");
-  const text = message.text?.trim() || "";
+  const text = (message.text || "").trim();
 
-  if (text.startsWith("/start in_") || text.startsWith("/start checkin_")) {
-    const arg = text.split(" ").slice(1).join(" ").trim();
-    await handleCheckinStart(chatId, message.from, arg);
+  if (isAdmin(userId)) {
+    await handleAdminMessage(message, text, chatId);
+    return;
+  }
+
+  if (text.startsWith("/start")) {
+    await sendWorkerWelcome(chatId, message.from);
     return;
   }
 
   if (message.location) {
-    await handleLocationMessage(chatId, message.from, message.location);
+    await handleWorkerLocation(message, chatId, userId);
     return;
   }
 
-  if (text === "❌ Бас тарту") {
-    checkinSessions.delete(userId);
-    await sendMessage(chatId, "Тіркеу тоқтатылды.", { reply_markup: { remove_keyboard: true } });
+  if (text === "📍 Мен келдім") {
+    await sendMessage(chatId, "📍 Орналасу батырмасын басыңыз ↓", { reply_markup: workerKeyboard() });
     return;
   }
 
-  if (isAdmin(userId)) {
-    await sendMessage(
-      chatId,
-      "<b>Sert табель — әкімші</b>\n\nБұл бот тек QR арқылы тіркелу мен хабарламаларға арналған. Mini App жоғарыдағы мәзір батырмасынан ашылады.",
-      { reply_markup: { remove_keyboard: true } },
-    );
+  if (text === "📅 Менің табелім") {
+    await sendWorkerMonth(chatId, userId);
     return;
   }
 
-  await sendMessage(
-    chatId,
-    "Сәлем! 👋\n\nЖұмысқа келгенде есік алдындағы QR кодты телефонмен сканерлеп тіркеліңіз.",
-    { reply_markup: { remove_keyboard: true } },
-  );
+  if (text === "📊 Осы ай") {
+    await sendWorkerStats(chatId, userId);
+    return;
+  }
+
+  await sendMessage(chatId, "Төмендегі түймелерді пайдаланыңыз.", { reply_markup: workerKeyboard() });
+}
+
+async function handleAdminMessage(message, text, chatId) {
+  const lower = text.toLowerCase();
+
+  if (lower.startsWith("/start") || lower === "/menu") {
+    await sendMessage(chatId, [
+      "<b>Sert табель — әкімші</b>",
+      "",
+      "Толық басқару Mini App-та (жоғарыдағы мәзір батырмасы).",
+      "",
+      "Командалар:",
+      "/qr — есік алдына ілу үшін жалпы QR",
+    ].join("\n"), { reply_markup: { remove_keyboard: true } });
+    return;
+  }
+
+  if (lower === "/qr") {
+    await sendSharedQr(chatId);
+    return;
+  }
+}
+
+async function sendWorkerWelcome(chatId, fromUser) {
+  const greeting = fromUser?.first_name ? `Сәлем, ${escapeHtml(fromUser.first_name)}! 👋` : "Сәлем! 👋";
+  await sendMessage(chatId, [
+    greeting,
+    "",
+    "Жұмысқа келгенде <b>📍 Мен келдім</b> түймесін басып, орналасуыңды жібер.",
+    "",
+    "Өзіңнің табеліңді көру үшін: <b>📅 Менің табелім</b>",
+  ].join("\n"), { reply_markup: workerKeyboard() });
+}
+
+async function sendSharedQr(chatId) {
+  const username = await getBotUsernameLocal();
+  if (!username) {
+    await sendMessage(chatId, "Бот username алынбады.");
+    return;
+  }
+  const url = `https://t.me/${username}?start=checkin`;
+  const png = await QRCode.toBuffer(url, { width: 600, margin: 2, errorCorrectionLevel: "M" });
+  await sendPhoto(chatId, png, [
+    "<b>Жалпы QR — есік алдына іліңіз</b>",
+    "",
+    `Сілтеме: <code>${escapeHtml(url)}</code>`,
+    "",
+    "Қызметкер сканерлесе, бот ашылып орналасуын сұрайды. Алғаш рет сканерлегенде сізге растау сұрауы келеді.",
+  ].join("\n"));
+}
+
+async function handleWorkerLocation(message, chatId, userId) {
+  if (!WORKPLACE_CONFIGURED) {
+    await sendMessage(chatId, "Жұмыс орны әлі баптауланбаған. Әкімшіге хабарлас.", { reply_markup: workerKeyboard() });
+    return;
+  }
+  const dist = distanceMeters(WORKPLACE_LAT, WORKPLACE_LON, message.location.latitude, message.location.longitude);
+  if (dist > WORKPLACE_RADIUS_M) {
+    await sendMessage(chatId, [
+      "❌ <b>Сіз жұмыс орнында емессіз.</b>",
+      "",
+      `Қашықтық: ~<b>${Math.round(dist)} м</b>`,
+      `Рұқсат: <b>${WORKPLACE_RADIUS_M} м</b>`,
+    ].join("\n"), { reply_markup: workerKeyboard() });
+    return;
+  }
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await sendMessage(chatId, `Қате: ${error.message}`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  const employee = findEmployeeByTelegramId(state, userId);
+  if (!employee) {
+    await notifyAdminsToBind(message.from, state);
+    await sendMessage(chatId, [
+      "🔒 Сіздің Telegram-ыңыз әлі тіркелмеген.",
+      "",
+      "Әкімшіге сұрау жіберілді. Растағаннан кейін қайта <b>📍 Мен келдім</b> басыңыз.",
+    ].join("\n"), { reply_markup: workerKeyboard() });
+    return;
+  }
+  const today = state.today;
+  const existing = state.attendance?.[today]?.[employee.id];
+  if (existing?.status === "present") {
+    await sendMessage(chatId, `✅ Сіз бүгін <b>${existing.time || ""}</b> кезінде белгіленгенсіз.`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  try {
+    await postApiAttendance({ date: today, employeeId: employee.id, status: "present" });
+  } catch (error) {
+    await sendMessage(chatId, `Сақталмады: ${error.message}`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  await sendMessage(chatId, [
+    `✅ <b>${escapeHtml(employee.name)}</b>`,
+    "",
+    `Бүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.`,
+    `Қашықтық: ~${Math.round(dist)} м`,
+  ].join("\n"), { reply_markup: workerKeyboard() });
+  for (const adminId of ADMIN_IDS) {
+    try {
+      await sendMessage(adminId, `📍 <b>${escapeHtml(employee.name)}</b> жұмысқа келді (${time})`);
+    } catch {}
+  }
+}
+
+async function notifyAdminsToBind(fromUser, state) {
+  const unbound = (state.employees || []).filter((e) => !e.telegramId);
+  const buttons = unbound.slice(0, 30).map((e) => ([{ text: e.name, callback_data: `bind:${e.id}:${fromUser.id}` }]));
+  const header = [
+    "<b>🔔 Жаңа тіркеу сұранысы</b>",
+    "",
+    `Аты: ${escapeHtml(fromUser.first_name || "")} ${escapeHtml(fromUser.last_name || "")}`.trim(),
+    fromUser.username ? `Username: @${escapeHtml(fromUser.username)}` : "",
+    `Telegram ID: <code>${fromUser.id}</code>`,
+    "",
+    unbound.length ? "Қай қызметкерге бекітеміз?" : "⚠️ Тіркеуге бос қызметкер жоқ. Mini App-та жаңа қызметкер қосыңыз.",
+  ].filter(Boolean).join("\n");
+  for (const adminId of ADMIN_IDS) {
+    try {
+      await sendMessage(adminId, header, unbound.length ? { reply_markup: { inline_keyboard: buttons } } : {});
+    } catch {}
+  }
+}
+
+async function handleBindCallback(callback, employeeId, telegramId) {
+  const chatId = callback.message.chat.id;
+  const messageId = callback.message.message_id;
+  if (!MINI_APP_URL) {
+    await answerCallback(callback.id, "MINI_APP_URL орнатылмаған");
+    return;
+  }
+  try {
+    const response = await fetch(`${MINI_APP_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ telegramId }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
+    const employee = (result.employees || []).find((e) => e.id === employeeId);
+    await answerCallback(callback.id, "Бекітілді ✅");
+    await editMessage(chatId, messageId, `✅ <b>${escapeHtml(employee?.name || employeeId)}</b> бекітілді (Telegram ID: <code>${telegramId}</code>)`, { reply_markup: { inline_keyboard: [] } });
+    try {
+      await sendMessage(telegramId, `✅ Сіз тіркелдіңіз${employee ? `: <b>${escapeHtml(employee.name)}</b>` : ""}!\n\nЕнді <b>📍 Мен келдім</b> түймесін басыңыз.`, { reply_markup: workerKeyboard() });
+    } catch {}
+  } catch (error) {
+    await answerCallback(callback.id, "Қате");
+    await sendMessage(chatId, `Қате: ${error.message}`);
+  }
+}
+
+async function sendWorkerMonth(chatId, userId) {
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await sendMessage(chatId, `Қате: ${error.message}`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  const employee = findEmployeeByTelegramId(state, userId);
+  if (!employee) {
+    await sendMessage(chatId, "Сіз әлі тіркелмегенсіз. Алдымен есік алдындағы QR-ды сканерлеп, әкімшінің растауын күтіңіз.", { reply_markup: workerKeyboard() });
+    return;
+  }
+  const month = state.today.slice(0, 7);
+  const records = [];
+  for (const [date, dayMap] of Object.entries(state.attendance || {})) {
+    if (!date.startsWith(month)) continue;
+    const r = dayMap[employee.id];
+    if (r) records.push({ date, status: r.status, time: r.time || "" });
+  }
+  records.sort((a, b) => a.date.localeCompare(b.date));
+  const emoji = { present: "✅", half: "🟡", absent: "❌", sick: "🤒", dayoff: "🌴" };
+  const lines = records.length
+    ? records.map((r) => `${emoji[r.status] || "•"} ${r.date}${r.time ? " — " + r.time : ""}`)
+    : ["Жазба әлі жоқ."];
+  await sendMessage(chatId, [
+    `<b>${escapeHtml(employee.name)} — ${month}</b>`,
+    "",
+    ...lines,
+  ].join("\n"), { reply_markup: workerKeyboard() });
+}
+
+async function sendWorkerStats(chatId, userId) {
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await sendMessage(chatId, `Қате: ${error.message}`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  const employee = findEmployeeByTelegramId(state, userId);
+  if (!employee) {
+    await sendMessage(chatId, "Сіз әлі тіркелмегенсіз.", { reply_markup: workerKeyboard() });
+    return;
+  }
+  const month = state.today.slice(0, 7);
+  let present = 0, half = 0, absent = 0, dayoff = 0, sick = 0;
+  for (const [date, dayMap] of Object.entries(state.attendance || {})) {
+    if (!date.startsWith(month)) continue;
+    const r = dayMap[employee.id];
+    if (!r) continue;
+    if (r.status === "present") present++;
+    else if (r.status === "half") half++;
+    else if (r.status === "absent") absent++;
+    else if (r.status === "dayoff") dayoff++;
+    else if (r.status === "sick") sick++;
+  }
+  await sendMessage(chatId, [
+    `<b>${escapeHtml(employee.name)} — ${month}</b>`,
+    "",
+    `✅ Жұмыста: <b>${present}</b>`,
+    `🟡 Жарты күн: <b>${half}</b>`,
+    `❌ Жоқ: <b>${absent}</b>`,
+    `🤒 Ауырып: <b>${sick}</b>`,
+    `🌴 Демалыс: <b>${dayoff}</b>`,
+  ].join("\n"), { reply_markup: workerKeyboard() });
 }
 
 async function fetchApiState() {
@@ -920,6 +1185,16 @@ async function handleCallback(callback) {
 
   if (dataValue.startsWith("checkin:")) {
     await handleCheckinCallback(callback, dataValue.slice("checkin:".length));
+    return;
+  }
+
+  if (dataValue.startsWith("bind:")) {
+    if (!isAdmin(userId)) {
+      await answerCallback(callback.id, "Рұқсат жоқ");
+      return;
+    }
+    const [, empId, tgId] = dataValue.split(":");
+    await handleBindCallback(callback, empId, tgId);
     return;
   }
 

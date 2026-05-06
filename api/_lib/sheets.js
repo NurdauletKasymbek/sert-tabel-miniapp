@@ -7,7 +7,7 @@ const STATUSES = {
   dayoff: { label: "Демалыс" },
 };
 
-const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні", "Кесте"];
+const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні", "Кесте", "Telegram ID"];
 
 const SCHEDULE_LABELS = {
   standard: "Стандарт",
@@ -251,7 +251,7 @@ async function ensureSheets() {
 
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 
-  await ensureHeader(a1(SHEETS.employees, "A1:G1"), EMPLOYEE_HEADERS);
+  await ensureHeader(a1(SHEETS.employees, "A1:H1"), EMPLOYEE_HEADERS);
   await ensureHeader(a1(SHEETS.attendance, "A1:G1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
@@ -289,6 +289,7 @@ function rowToEmployee(row) {
     createdAt: row[4] || "",
     archivedAt: row[5] || "",
     schedule: labelToSchedule(row[6]),
+    telegramId: row[7] ? String(row[7]).trim() : "",
   };
 }
 
@@ -301,6 +302,7 @@ function employeeToRow(employee) {
     employee.createdAt || "",
     employee.archivedAt || "",
     scheduleToLabel(employee.schedule || "standard"),
+    employee.telegramId ? String(employee.telegramId) : "",
   ];
 }
 
@@ -498,8 +500,8 @@ export function nextEmployeeId(employees) {
 
 export async function saveEmployees(employees) {
   await ensureSheets();
-  await clearRange(a1(SHEETS.employees, "A2:G1000"));
-  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:G1000"), employees.map(employeeToRow));
+  await clearRange(a1(SHEETS.employees, "A2:H1000"));
+  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:H1000"), employees.map(employeeToRow));
 }
 
 export async function saveAttendance(attendance) {
