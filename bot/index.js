@@ -734,13 +734,10 @@ async function handleMessage(message) {
   }
 
   if (isAdmin(userId)) {
-    const opts = MINI_APP_URL
-      ? { reply_markup: { inline_keyboard: [[{ text: "📱 Mini App ашу", web_app: { url: MINI_APP_URL } }]] } }
-      : { reply_markup: { remove_keyboard: true } };
     await sendMessage(
       chatId,
-      "<b>Sert табель — әкімші</b>\n\nБарлық басқару Mini App ішінде. Бұл бот тек QR арқылы тіркелу мен хабарламаларға арналған.",
-      opts,
+      "<b>Sert табель — әкімші</b>\n\nБұл бот тек QR арқылы тіркелу мен хабарламаларға арналған. Mini App жоғарыдағы мәзір батырмасынан ашылады.",
+      { reply_markup: { remove_keyboard: true } },
     );
     return;
   }
@@ -1377,9 +1374,29 @@ async function sendMonthlyReportsIfDue() {
   await saveData(data, { syncSheets: false });
 }
 
+async function configureBotMenu() {
+  try {
+    await telegram("setMyCommands", { commands: [] });
+  } catch (error) {
+    console.error(`setMyCommands failed: ${error.message}`);
+  }
+  if (!MINI_APP_URL) return;
+  for (const adminId of ADMIN_IDS) {
+    try {
+      await telegram("setChatMenuButton", {
+        chat_id: Number(adminId),
+        menu_button: { type: "web_app", text: "Mini App", web_app: { url: MINI_APP_URL } },
+      });
+    } catch (error) {
+      console.error(`setChatMenuButton(${adminId}) failed: ${error.message}`);
+    }
+  }
+}
+
 async function poll() {
   let offset = 0;
   console.log(`Бот іске қосылды: ${BOT_VERSION}. Уақыт белдеуі: ${TIME_ZONE}`);
+  await configureBotMenu();
   setInterval(() => {
     sendMonthlyReportsIfDue().catch((error) => console.error(`Monthly report failed: ${error.message}`));
   }, 60_000);
