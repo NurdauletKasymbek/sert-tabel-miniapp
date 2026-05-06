@@ -329,7 +329,7 @@ function statusToLabel(status) {
 export async function loadStore() {
   await ensureSheets();
   const [employeeRows, attendanceRows, historyRows] = await Promise.all([
-    getValues(a1(SHEETS.employees, "A2:G1000")),
+    getValues(a1(SHEETS.employees, "A2:H1000")),
     getValues(a1(SHEETS.attendance, "A2:G5000")),
     getValues(a1(SHEETS.history, "A2:G5000")),
   ]);
