@@ -257,6 +257,7 @@ async function ensureSheets() {
   await ensureHeader(a1(SHEETS.attendance, "A1:G1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
   await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
+  await clearRange(a1(SHEETS.advances, "E1:E5000"));
   await ensureAdvanceNameValidation();
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
 }
