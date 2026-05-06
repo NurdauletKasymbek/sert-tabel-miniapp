@@ -15,6 +15,11 @@ const ADMIN_IDS = new Set((process.env.ADMIN_TELEGRAM_IDS || "").split(",").map(
 const TIME_ZONE = process.env.BOT_TIMEZONE || "Asia/Almaty";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || "";
 const MINI_APP_URL = process.env.MINI_APP_URL || "";
+const WORKPLACE_LAT = Number.parseFloat(process.env.WORKPLACE_LAT || "");
+const WORKPLACE_LON = Number.parseFloat(process.env.WORKPLACE_LON || "");
+const WORKPLACE_RADIUS_M = Number.parseInt(process.env.WORKPLACE_RADIUS_M || "200", 10);
+const WORKPLACE_CONFIGURED = Number.isFinite(WORKPLACE_LAT) && Number.isFinite(WORKPLACE_LON);
+const checkinSessions = new Map();
 const GOOGLE_SERVICE_ACCOUNT = loadGoogleServiceAccount();
 const SHEETS = {
   employees: "Қызметкерлер",
@@ -709,8 +714,7 @@ async function handleAdminCommand(message, data, command, args) {
 async function handleMessage(message) {
   const chatId = message.chat.id;
   const userId = String(message.from?.id || "");
-  const text = message.text?.trim();
-  if (!text) return;
+  const text = message.text?.trim() || "";
 
   if (text.startsWith("/start in_") || text.startsWith("/start checkin_")) {
     const arg = text.split(" ").slice(1).join(" ").trim();
@@ -718,19 +722,34 @@ async function handleMessage(message) {
     return;
   }
 
-  if (!isAdmin(userId)) {
-    await sendMessage(chatId, "Бұл бот тек жауапты адамға арналған. Админге өз Telegram ID-ыңызды жіберіңіз: " + userId);
+  if (message.location) {
+    await handleLocationMessage(chatId, message.from, message.location);
     return;
   }
 
-  const data = await loadData();
-  const session = data.sessions[userId];
-  if (session && await handlePendingText(message, data, session, text)) return;
+  if (text === "❌ Бас тарту") {
+    checkinSessions.delete(userId);
+    await sendMessage(chatId, "Тіркеу тоқтатылды.", { reply_markup: { remove_keyboard: true } });
+    return;
+  }
 
-  const { command, args } = parseCommand(text);
-  if (await handleAdminCommand(message, data, command, args)) return;
+  if (isAdmin(userId)) {
+    const opts = MINI_APP_URL
+      ? { reply_markup: { inline_keyboard: [[{ text: "📱 Mini App ашу", web_app: { url: MINI_APP_URL } }]] } }
+      : { reply_markup: { remove_keyboard: true } };
+    await sendMessage(
+      chatId,
+      "<b>Sert табель — әкімші</b>\n\nБарлық басқару Mini App ішінде. Бұл бот тек QR арқылы тіркелу мен хабарламаларға арналған.",
+      opts,
+    );
+    return;
+  }
 
-  await sendMessage(chatId, "Барлық басқару Mini App ішінде. Бұл бот тек хабарлама алу үшін қалдырылды.", { reply_markup: mainKeyboard() });
+  await sendMessage(
+    chatId,
+    "Сәлем! 👋\n\nЖұмысқа келгенде есік алдындағы QR кодты телефонмен сканерлеп тіркеліңіз.",
+    { reply_markup: { remove_keyboard: true } },
+  );
 }
 
 async function fetchApiState() {
@@ -750,6 +769,15 @@ async function postApiAttendance(payload) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
   return result;
+}
+
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
 }
 
 async function handleCheckinStart(chatId, fromUser, arg) {
@@ -772,21 +800,90 @@ async function handleCheckinStart(chatId, fromUser, arg) {
   }
   const today = state.today;
   const existing = state.attendance?.[today]?.[employeeId];
-  const greeting = fromUser?.first_name ? `Сәлем, ${escapeHtml(fromUser.first_name)}!` : "Сәлем!";
-  const lines = [
-    greeting,
-    "",
-    `<b>${escapeHtml(employee.name)}</b> (${escapeHtml(employee.role || "Қызметкер")})`,
-    `Бүгін: <b>${today}</b>`,
-  ];
   if (existing?.status === "present") {
-    lines.push("", `✅ Сіз <b>${existing.time || ""}</b> кезінде белгіленгенсіз.`);
-  } else {
-    lines.push("", "Жұмысқа келдіңіз бе? Растаңыз:");
+    await sendMessage(chatId, `<b>${escapeHtml(employee.name)}</b>\n\n✅ Сіз бүгін <b>${existing.time || ""}</b> кезінде белгіленгенсіз.`, { reply_markup: { remove_keyboard: true } });
+    return;
   }
-  await sendMessage(chatId, lines.join("\n"), {
-    reply_markup: { inline_keyboard: [[{ text: existing?.status === "present" ? "Қайта растау" : "✅ Иә, келдім", callback_data: `checkin:${employeeId}` }]] },
+
+  if (!WORKPLACE_CONFIGURED) {
+    const greeting = fromUser?.first_name ? `Сәлем, ${escapeHtml(fromUser.first_name)}!` : "Сәлем!";
+    await sendMessage(chatId, [
+      greeting, "",
+      `<b>${escapeHtml(employee.name)}</b> (${escapeHtml(employee.role || "Қызметкер")})`,
+      `Бүгін: <b>${today}</b>`, "",
+      "Жұмысқа келдіңіз бе? Растаңыз:",
+    ].join("\n"), {
+      reply_markup: { inline_keyboard: [[{ text: "✅ Иә, келдім", callback_data: `checkin:${employeeId}` }]] },
+    });
+    return;
+  }
+
+  const userId = String(fromUser?.id || "");
+  checkinSessions.set(userId, { employeeId, expiresAt: Date.now() + 10 * 60 * 1000 });
+  await sendMessage(chatId, [
+    `<b>${escapeHtml(employee.name)}</b>`, "",
+    "📍 Жұмысқа келгеніңізді растау үшін орналасуыңды жіберіңіз:",
+    "",
+    "<i>Төмендегі көк батырманы басыңыз.</i>",
+  ].join("\n"), {
+    reply_markup: {
+      keyboard: [
+        [{ text: "📍 Орналасуымды жіберу", request_location: true }],
+        [{ text: "❌ Бас тарту" }],
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
   });
+}
+
+async function handleLocationMessage(chatId, fromUser, location) {
+  const userId = String(fromUser?.id || "");
+  const session = checkinSessions.get(userId);
+  if (!session || session.expiresAt < Date.now()) {
+    checkinSessions.delete(userId);
+    await sendMessage(chatId, "Тіркеу мерзімі бітті. QR-ды қайтадан сканерлеңіз.", { reply_markup: { remove_keyboard: true } });
+    return;
+  }
+  if (!WORKPLACE_CONFIGURED) {
+    checkinSessions.delete(userId);
+    return;
+  }
+  const dist = distanceMeters(WORKPLACE_LAT, WORKPLACE_LON, location.latitude, location.longitude);
+  if (dist > WORKPLACE_RADIUS_M) {
+    await sendMessage(
+      chatId,
+      `❌ <b>Сіз жұмыс орнында емессіз.</b>\n\nҚашықтық: ~<b>${Math.round(dist)} м</b>\nРұқсат етілген: <b>${WORKPLACE_RADIUS_M} м</b>\n\nЖұмыс орнына барып қайта сканерлеңіз.`,
+      { reply_markup: { remove_keyboard: true } },
+    );
+    return;
+  }
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await sendMessage(chatId, `Қате: ${error.message}`, { reply_markup: { remove_keyboard: true } });
+    return;
+  }
+  const employee = [...(state.employees || []), ...(state.archivedEmployees || [])].find((emp) => emp.id === session.employeeId);
+  if (!employee) {
+    checkinSessions.delete(userId);
+    await sendMessage(chatId, "Қызметкер табылмады.", { reply_markup: { remove_keyboard: true } });
+    return;
+  }
+  try {
+    await postApiAttendance({ date: state.today, employeeId: session.employeeId, status: "present" });
+  } catch (error) {
+    await sendMessage(chatId, `Сақталмады: ${error.message}`, { reply_markup: { remove_keyboard: true } });
+    return;
+  }
+  checkinSessions.delete(userId);
+  const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  await sendMessage(
+    chatId,
+    `✅ <b>${escapeHtml(employee.name)}</b>\n\nБүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.\nҚашықтық: ~${Math.round(dist)} м`,
+    { reply_markup: { remove_keyboard: true } },
+  );
 }
 
 async function handleCheckinCallback(callback, employeeId) {

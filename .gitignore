@@ -6,3 +6,5 @@ bot/.env
 bot/google-service-account.json
 *service-account*.json
 .env
+
+.vercel

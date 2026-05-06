@@ -182,6 +182,7 @@ function App() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [qrEmployee, setQrEmployee] = useState(null);
   const [now, setNow] = useState(() => new Date());
+  const [accessState, setAccessState] = useState("checking");
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -209,7 +210,23 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    loadState();
+    (async () => {
+      try {
+        const tg = getTelegram();
+        const userId = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "";
+        const me = await api(`/api/me${userId ? `?userId=${encodeURIComponent(userId)}` : ""}`);
+        if (me.isAdmin) {
+          setAccessState("granted");
+          loadState();
+        } else {
+          setAccessState("denied");
+          setLoading(false);
+        }
+      } catch {
+        setAccessState("granted");
+        loadState();
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -462,6 +479,22 @@ function App() {
 
   const isDark = theme === "dark";
   const todayDay = state.today?.startsWith(month) ? Number(state.today.slice(-2)) : null;
+
+  if (accessState === "denied") {
+    return (
+      <main className={cx("flex min-h-screen items-center justify-center px-6", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
+        <div className={cx("w-full max-w-sm rounded-3xl px-6 py-10 text-center shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
+          <div className="mb-4 text-5xl">🔒</div>
+          <h1 className="text-xl font-black">Сізде рұқсат жоқ</h1>
+          <p className={cx("mt-3 text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+            Бұл қосымша тек әкімшіге арналған.
+            <br /><br />
+            Жұмысқа келген кезде есік алдындағы <b>QR кодты телефонмен сканерлеп</b> тіркеліңіз.
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className={cx("min-h-screen", isDark ? "bg-[#04060d] text-white" : "bg-[#07101f] text-[#07122b]")}>
