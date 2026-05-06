@@ -30,7 +30,7 @@ const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні"
 const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"];
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
-const ADVANCE_HEADERS = ["Күні", "Қызметкер ID", "Аты-жөні", "Сома", "Ескертпе"];
+const ADVANCE_HEADERS = ["Күні", "Аты-жөні", "Сома", "Ескертпе"];
 
 const SHEETS = {
   employees: "Қызметкерлер",
@@ -256,8 +256,55 @@ async function ensureSheets() {
   await ensureHeader(a1(SHEETS.employees, "A1:H1"), EMPLOYEE_HEADERS);
   await ensureHeader(a1(SHEETS.attendance, "A1:G1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
-  await ensureHeader(a1(SHEETS.advances, "A1:E1"), ADVANCE_HEADERS);
+  await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
+  await ensureAdvanceNameValidation();
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
+}
+
+async function ensureAdvanceNameValidation() {
+  try {
+    const spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title)");
+    const sheetMap = Object.fromEntries(spreadsheet.sheets.map((sheet) => [sheet.properties.title, sheet.properties.sheetId]));
+    const advancesId = sheetMap[SHEETS.advances];
+    const employeesId = sheetMap[SHEETS.employees];
+    if (advancesId === undefined || employeesId === undefined) return;
+    await sheetsFetch(":batchUpdate", {
+      method: "POST",
+      body: JSON.stringify({
+        requests: [
+          {
+            setDataValidation: {
+              range: { sheetId: advancesId, startRowIndex: 1, endRowIndex: 5000, startColumnIndex: 1, endColumnIndex: 2 },
+              rule: {
+                condition: {
+                  type: "ONE_OF_RANGE",
+                  values: [{ userEnteredValue: `=${SHEETS.employees}!$B$2:$B$1000` }],
+                },
+                showCustomUi: true,
+                strict: false,
+              },
+            },
+          },
+          {
+            repeatCell: {
+              range: { sheetId: advancesId, startRowIndex: 1, endRowIndex: 5000, startColumnIndex: 0, endColumnIndex: 1 },
+              cell: { userEnteredFormat: { numberFormat: { type: "DATE", pattern: "yyyy-mm-dd" } } },
+              fields: "userEnteredFormat.numberFormat",
+            },
+          },
+          {
+            repeatCell: {
+              range: { sheetId: advancesId, startRowIndex: 1, endRowIndex: 5000, startColumnIndex: 2, endColumnIndex: 3 },
+              cell: { userEnteredFormat: { numberFormat: { type: "NUMBER", pattern: "#,##0" } } },
+              fields: "userEnteredFormat.numberFormat",
+            },
+          },
+        ],
+      }),
+    });
+  } catch {
+    // best-effort; ignore validation errors so loadStore still works
+  }
 }
 
 async function ensureHeader(range, headers) {
@@ -334,18 +381,22 @@ export async function loadStore() {
   const [employeeRows, attendanceRows, advanceRows, historyRows] = await Promise.all([
     getValues(a1(SHEETS.employees, "A2:H1000")),
     getValues(a1(SHEETS.attendance, "A2:G5000")),
-    getValues(a1(SHEETS.advances, "A2:E5000")),
+    getValues(a1(SHEETS.advances, "A2:D5000")),
     getValues(a1(SHEETS.history, "A2:G5000")),
   ]);
   const employees = employeeRows.filter((row) => row[0]).map(rowToEmployee);
   const attendance = attendanceRows.filter((row) => row[0] && row[1]).map(rowToAttendance);
-  const advances = advanceRows.filter((row) => row[0] && row[1]).map((row) => ({
-    date: String(row[0] || "").trim(),
-    employeeId: String(row[1] || "").trim(),
-    name: row[2] || "",
-    amount: Number(String(row[3] || "0").replace(/[^\d.-]/g, "")) || 0,
-    note: row[4] || "",
-  }));
+  const employeeByName = new Map(employees.map((employee) => [employee.name.trim().toLowerCase(), employee.id]));
+  const advances = advanceRows.filter((row) => row[0] && row[1]).map((row) => {
+    const name = String(row[1] || "").trim();
+    return {
+      date: String(row[0] || "").trim(),
+      employeeId: employeeByName.get(name.toLowerCase()) || "",
+      name,
+      amount: Number(String(row[2] || "0").replace(/[^\d.-]/g, "")) || 0,
+      note: row[3] || "",
+    };
+  });
   const history = historyRows.filter((row) => row[0]).map((row) => ({
     at: row[0],
     action: row[1],
