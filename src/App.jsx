@@ -1164,10 +1164,18 @@ function LiveClock({ now }) {
   );
 }
 
+function formatTenge(amount) {
+  const n = Number(amount) || 0;
+  return new Intl.NumberFormat("ru-RU").format(n).replace(/,/g, " ") + " ₸";
+}
+
 function StatsView({ isDark, state, month }) {
   const employees = state.employees || [];
   const days = daysInMonth(month);
   const todayDay = state.today?.startsWith(month) ? Number(state.today.slice(-2)) : null;
+  const advancesByMonth = state.advancesByMonth || {};
+  const monthAdvances = advancesByMonth[month] || {};
+  const [advanceFor, setAdvanceFor] = useState(null);
 
   const { trend, totals } = useMemo(() => {
     const trendArr = [];
@@ -1305,13 +1313,28 @@ function StatsView({ isDark, state, month }) {
                       </p>
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end leading-none">
-                    <span className={cx("text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>
-                      {formatDays(row.days)}
-                    </span>
-                    <span className={cx("mt-0.5 text-[10px] font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-                      күн
-                    </span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setAdvanceFor(row.employee); }}
+                      className={cx(
+                        "grid size-8 place-items-center rounded-full text-base transition active:scale-90",
+                        monthAdvances[row.employee.id]?.total
+                          ? (isDark ? "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200")
+                          : (isDark ? "bg-white/5 text-slate-500" : "bg-[#f4f7fc] text-[#94a3b8]"),
+                      )}
+                      aria-label="Аванс"
+                    >
+                      💰
+                    </button>
+                    <div className="flex flex-col items-end leading-none">
+                      <span className={cx("text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>
+                        {formatDays(row.days)}
+                      </span>
+                      <span className={cx("mt-0.5 text-[10px] font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                        күн
+                      </span>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -1319,6 +1342,46 @@ function StatsView({ isDark, state, month }) {
           })}
         </div>
       </div>
+      <AnimatePresence>
+        {advanceFor && (
+          <Modal isDark={isDark} title={`💰 ${advanceFor.name} — аванс`} onClose={() => setAdvanceFor(null)}>
+            <AdvanceDetail isDark={isDark} employee={advanceFor} month={month} data={monthAdvances[advanceFor.id]} />
+          </Modal>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function AdvanceDetail({ isDark, employee, month, data }) {
+  const items = (data?.items || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+  const total = data?.total || 0;
+  return (
+    <div className="space-y-3">
+      <div className={cx("rounded-2xl px-4 py-3 text-center", isDark ? "bg-amber-500/10" : "bg-amber-50")}>
+        <p className={cx("text-[10px] font-black uppercase tracking-wider", isDark ? "text-amber-300/80" : "text-amber-700/80")}>{month} жалпы алынды</p>
+        <p className={cx("mt-1 text-2xl font-black", isDark ? "text-amber-300" : "text-amber-700")}>{formatTenge(total)}</p>
+      </div>
+      {items.length === 0 ? (
+        <p className={cx("rounded-2xl px-4 py-6 text-center text-sm font-bold", isDark ? "bg-white/5 text-slate-400" : "bg-[#f4f7fc] text-[#7a86a0]")}>
+          Бұл айда аванс берілмеген.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((it, i) => (
+            <div key={i} className={cx("flex items-center justify-between rounded-2xl px-3 py-2.5", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
+              <div className="min-w-0">
+                <p className={cx("text-xs font-black", isDark ? "text-white" : "text-[#07122b]")}>{it.date}</p>
+                {it.note && <p className={cx("mt-0.5 truncate text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{it.note}</p>}
+              </div>
+              <p className={cx("shrink-0 text-sm font-black", isDark ? "text-amber-300" : "text-amber-700")}>{formatTenge(it.amount)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className={cx("rounded-xl px-3 py-2.5 text-[11px] font-bold leading-relaxed", isDark ? "bg-white/5 text-slate-400" : "bg-[#eef3ff] text-[#0b1b5f]/70")}>
+        Аванстарды Google Sheets-те «Аванстар» парағында қолмен жазыңыз. Бағандар: Күні, ID, Аты, Сома, Ескертпе.
+      </p>
     </div>
   );
 }

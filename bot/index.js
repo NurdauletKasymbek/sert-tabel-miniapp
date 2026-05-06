@@ -732,9 +732,15 @@ function workerKeyboard() {
     keyboard: [
       [{ text: "📍 Мен келдім", request_location: true }],
       [{ text: "📅 Менің табелім" }, { text: "📊 Осы ай" }],
+      [{ text: "💰 Аванс" }],
     ],
     resize_keyboard: true,
   };
+}
+
+function formatMoney(amount) {
+  const n = Number(amount) || 0;
+  return n.toLocaleString("ru-RU").replace(/,/g, " ") + " ₸";
 }
 
 let cachedBotUsername = "";
@@ -790,7 +796,40 @@ async function handleMessage(message) {
     return;
   }
 
+  if (text === "💰 Аванс") {
+    await sendWorkerAdvance(chatId, userId);
+    return;
+  }
+
   await sendMessage(chatId, "Төмендегі түймелерді пайдаланыңыз.", { reply_markup: workerKeyboard() });
+}
+
+async function sendWorkerAdvance(chatId, userId) {
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await sendMessage(chatId, `Қате: ${error.message}`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  const employee = findEmployeeByTelegramId(state, userId);
+  if (!employee) {
+    await sendMessage(chatId, "Сіз әлі тіркелмегенсіз.", { reply_markup: workerKeyboard() });
+    return;
+  }
+  const month = state.month;
+  const monthData = state.advancesByMonth?.[month]?.[employee.id];
+  const items = monthData?.items || [];
+  items.sort((a, b) => a.date.localeCompare(b.date));
+  const total = monthData?.total || 0;
+  const lines = items.map((it) => `• ${it.date}: <b>${formatMoney(it.amount)}</b>${it.note ? " — " + escapeHtml(it.note) : ""}`);
+  await sendMessage(chatId, [
+    `<b>💰 ${escapeHtml(employee.name)} — ${month}</b>`,
+    "",
+    lines.length ? lines.join("\n") : "Бұл айда аванс алынбаған.",
+    "",
+    `Жалпы алынды: <b>${formatMoney(total)}</b>`,
+  ].join("\n"), { reply_markup: workerKeyboard() });
 }
 
 async function handleAdminMessage(message, text, chatId) {

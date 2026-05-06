@@ -30,11 +30,13 @@ const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні"
 const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"];
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
+const ADVANCE_HEADERS = ["Күні", "Қызметкер ID", "Аты-жөні", "Сома", "Ескертпе"];
 
 const SHEETS = {
   employees: "Қызметкерлер",
   attendance: "Табель",
   reports: "Есеп",
+  advances: "Аванстар",
   history: "Журнал",
 };
 
@@ -254,6 +256,7 @@ async function ensureSheets() {
   await ensureHeader(a1(SHEETS.employees, "A1:H1"), EMPLOYEE_HEADERS);
   await ensureHeader(a1(SHEETS.attendance, "A1:G1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
+  await ensureHeader(a1(SHEETS.advances, "A1:E1"), ADVANCE_HEADERS);
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
 }
 
@@ -328,13 +331,21 @@ function statusToLabel(status) {
 
 export async function loadStore() {
   await ensureSheets();
-  const [employeeRows, attendanceRows, historyRows] = await Promise.all([
+  const [employeeRows, attendanceRows, advanceRows, historyRows] = await Promise.all([
     getValues(a1(SHEETS.employees, "A2:H1000")),
     getValues(a1(SHEETS.attendance, "A2:G5000")),
+    getValues(a1(SHEETS.advances, "A2:E5000")),
     getValues(a1(SHEETS.history, "A2:G5000")),
   ]);
   const employees = employeeRows.filter((row) => row[0]).map(rowToEmployee);
   const attendance = attendanceRows.filter((row) => row[0] && row[1]).map(rowToAttendance);
+  const advances = advanceRows.filter((row) => row[0] && row[1]).map((row) => ({
+    date: String(row[0] || "").trim(),
+    employeeId: String(row[1] || "").trim(),
+    name: row[2] || "",
+    amount: Number(String(row[3] || "0").replace(/[^\d.-]/g, "")) || 0,
+    note: row[4] || "",
+  }));
   const history = historyRows.filter((row) => row[0]).map((row) => ({
     at: row[0],
     action: row[1],
@@ -344,7 +355,7 @@ export async function loadStore() {
     oldLabel: row[5],
     newLabel: row[6],
   }));
-  return { employees, attendance, history };
+  return { employees, attendance, advances, history };
 }
 
 export function publicState(store) {
@@ -370,6 +381,16 @@ export function publicState(store) {
   const unmarkedEmployees = activeEmployees.filter((employee) => !todayRecords[employee.id]);
   const todayControl = dayControl(attendanceMap, activeEmployees, today);
   const roles = [...new Set(activeEmployees.map((employee) => employee.role || "Қызметкер"))].sort((a, b) => a.localeCompare(b, "kk"));
+  const advances = store.advances || [];
+  const advancesByMonth = {};
+  for (const adv of advances) {
+    const m = (adv.date || "").slice(0, 7);
+    if (!m) continue;
+    advancesByMonth[m] ||= {};
+    advancesByMonth[m][adv.employeeId] ||= { total: 0, items: [] };
+    advancesByMonth[m][adv.employeeId].total += adv.amount || 0;
+    advancesByMonth[m][adv.employeeId].items.push({ date: adv.date, amount: adv.amount, note: adv.note });
+  }
   return {
     today,
     month,
@@ -380,6 +401,8 @@ export function publicState(store) {
     roles,
     recentHistory: (store.history || []).slice(-12).reverse(),
     attendance: attendanceMap,
+    advances,
+    advancesByMonth,
     sheetSync: null,
   };
 }
