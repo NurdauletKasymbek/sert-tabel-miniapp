@@ -854,7 +854,7 @@ function App() {
 
         {statsOpen && (
           <Modal isDark={isDark} title="Айлық статистика" onClose={() => setStatsOpen(false)}>
-            <StatsView isDark={isDark} state={state} month={month} />
+            <StatsView isDark={isDark} state={state} month={month} onRefresh={loadState} />
           </Modal>
         )}
 
@@ -1169,13 +1169,14 @@ function formatTenge(amount) {
   return new Intl.NumberFormat("ru-RU").format(n).replace(/,/g, " ") + " ₸";
 }
 
-function StatsView({ isDark, state, month }) {
+function StatsView({ isDark, state, month, onRefresh }) {
   const employees = state.employees || [];
   const days = daysInMonth(month);
   const todayDay = state.today?.startsWith(month) ? Number(state.today.slice(-2)) : null;
   const advancesByMonth = state.advancesByMonth || {};
   const monthAdvances = advancesByMonth[month] || {};
   const [advanceFor, setAdvanceFor] = useState(null);
+  const [advFormOpen, setAdvFormOpen] = useState(false);
 
   const { trend, totals } = useMemo(() => {
     const trendArr = [];
@@ -1253,7 +1254,16 @@ function StatsView({ isDark, state, month }) {
       <div>
         <div className="mb-2 flex items-center justify-between px-1">
           <p className={cx("eyebrow", isDark && "eyebrow-dark")}>Барлық қызметкер</p>
-          <span className={cx("text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{totals.length} адам</span>
+          <div className="flex items-center gap-2">
+            <span className={cx("text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{totals.length} адам</span>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => { haptic("light"); setAdvFormOpen(true); }}
+              className={cx("rounded-full px-3 py-1 text-[11px] font-black ring-1 transition", isDark ? "bg-amber-500/15 text-amber-300 ring-amber-400/30" : "bg-amber-50 text-amber-700 ring-amber-200")}
+            >
+              + Аванс жазу
+            </motion.button>
+          </div>
         </div>
         <div className="space-y-1.5">
           {totals.length === 0 && (
@@ -1348,7 +1358,114 @@ function StatsView({ isDark, state, month }) {
             <AdvanceDetail isDark={isDark} employee={advanceFor} month={month} data={monthAdvances[advanceFor.id]} />
           </Modal>
         )}
+        {advFormOpen && (
+          <Modal isDark={isDark} title="💰 Аванс жазу" onClose={() => setAdvFormOpen(false)}>
+            <AdvanceFormModal
+              isDark={isDark}
+              employees={employees}
+              today={state.today || new Date().toISOString().slice(0, 10)}
+              onClose={() => setAdvFormOpen(false)}
+              onSuccess={() => { setAdvFormOpen(false); onRefresh?.(); }}
+            />
+          </Modal>
+        )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function AdvanceFormModal({ isDark, employees, today, onClose, onSuccess }) {
+  const [empName, setEmpName] = useState("");
+  const [date, setDate] = useState("");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function handleEmpChange(e) {
+    setEmpName(e.target.value);
+    if (!date) setDate(today);
+  }
+
+  async function submit() {
+    if (!empName || !date || !amount) {
+      setError("Аты-жөні, күн және сома міндетті өрістер");
+      return;
+    }
+    haptic("medium");
+    setSaving(true);
+    setError("");
+    try {
+      await api("/api/advances", {
+        method: "POST",
+        body: JSON.stringify({ date, employeeName: empName, amount: Number(amount), note }),
+      });
+      haptic("success");
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+      haptic("error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {error && <InlineError text={error} />}
+      <label className="block">
+        <span className={cx("form-label", isDark && "form-label-dark")}>Аты-жөні</span>
+        <select
+          value={empName}
+          onChange={handleEmpChange}
+          className={cx("form-input", isDark && "form-input-dark")}
+        >
+          <option value="">Қызметкерді таңдаңыз</option>
+          {employees.map((emp) => (
+            <option key={emp.id} value={emp.name}>{emp.name}</option>
+          ))}
+        </select>
+      </label>
+      <label className="block">
+        <span className={cx("form-label", isDark && "form-label-dark")}>Күні</span>
+        <input
+          type="date"
+          value={date}
+          max={today}
+          onChange={(e) => setDate(e.target.value)}
+          className={cx("form-input", isDark && "form-input-dark")}
+        />
+      </label>
+      <label className="block">
+        <span className={cx("form-label", isDark && "form-label-dark")}>Сома (₸)</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="Мысалы: 50000"
+          min="1"
+          className={cx("form-input", isDark && "form-input-dark")}
+        />
+      </label>
+      <label className="block">
+        <span className={cx("form-label", isDark && "form-label-dark")}>Ескертпе</span>
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Міндетті емес"
+          className={cx("form-input", isDark && "form-input-dark")}
+        />
+      </label>
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={submit}
+        disabled={saving || !empName || !date || !amount}
+        className="w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50"
+      >
+        {saving ? "Жазылып жатыр..." : "Аванс жазу"}
+      </motion.button>
     </div>
   );
 }
@@ -1380,7 +1497,7 @@ function AdvanceDetail({ isDark, employee, month, data }) {
         </div>
       )}
       <p className={cx("rounded-xl px-3 py-2.5 text-[11px] font-bold leading-relaxed", isDark ? "bg-white/5 text-slate-400" : "bg-[#eef3ff] text-[#0b1b5f]/70")}>
-        Аванстарды Google Sheets-те «Аванстар» парағында қолмен жазыңыз. Бағандар: Күні, ID, Аты, Сома, Ескертпе.
+        Жаңа аванс жазу үшін статистика бетіндегі «+ Аванс жазу» батырмасын басыңыз.
       </p>
     </div>
   );

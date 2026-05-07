@@ -1,4 +1,4 @@
-import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, STATUSES } from "./_lib/sheets.js";
+import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, todayDate, STATUSES } from "./_lib/sheets.js";
 
 export default async function handler(req, res) {
   try {
@@ -27,14 +27,35 @@ export default async function handler(req, res) {
 
     // Keep only one record per employee per day so changing a mistaken mark really replaces it.
     store.attendance = store.attendance.filter((row) => !(row.date === date && row.employeeId === employeeId));
+    const now = currentTime();
+    const isNewCheckIn = !existing && status === "present" && date === todayDate();
+    const newCheckIn = existing?.checkInTime || (status === "present" ? now : "");
+    let lateMin = existing?.lateMinutes || 0;
+    if (isNewCheckIn) {
+      const timeZone = process.env.BOT_TIMEZONE || "Asia/Almaty";
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "numeric",
+        minute: "numeric",
+        hour12: false,
+      }).formatToParts(new Date());
+      const h = Number(parts.find((p) => p.type === "hour")?.value || 0);
+      const m = Number(parts.find((p) => p.type === "minute")?.value || 0);
+      const total = h * 60 + m;
+      lateMin = total > 9 * 60 ? total - 9 * 60 : 0;
+    }
     store.attendance.push({
       date,
       employeeId,
       name: employee.name,
       role,
       label,
-      time: currentTime(),
+      time: now,
       updatedAt: new Date().toISOString(),
+      checkInTime: newCheckIn,
+      checkOutTime: existing?.checkOutTime || "",
+      lateMinutes: lateMin,
+      earlyMinutes: existing?.earlyMinutes || 0,
     });
 
     await saveAttendance(store.attendance);

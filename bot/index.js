@@ -67,7 +67,8 @@ const defaultData = {
 
 function loadEnvFile(filePath) {
   if (!existsSync(filePath)) return;
-  const lines = readFileSync(filePath, "utf8").split(/\r?\n/);
+  const content = readFileSync(filePath, "utf8").replace(/^﻿/, "");
+  const lines = content.split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -727,15 +728,43 @@ async function handleAdminCommand(message, data, command, args) {
   return false;
 }
 
+const WORK_START_HOUR = 9;
+const WORK_END_HOUR = 18;
+
 function workerKeyboard() {
   return {
     keyboard: [
       [{ text: "📍 Мен келдім", request_location: true }],
       [{ text: "📅 Менің табелім" }, { text: "📊 Осы ай" }],
-      [{ text: "💰 Аванс" }],
+      [{ text: "💰 Аванс" }, { text: "🚪 Шығып жатырмын" }],
     ],
     resize_keyboard: true,
   };
+}
+
+function currentHourMinute() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIME_ZONE,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(now);
+  const h = Number(parts.find((p) => p.type === "hour")?.value || 0);
+  const m = Number(parts.find((p) => p.type === "minute")?.value || 0);
+  return { hour: h, minute: m, totalMinutes: h * 60 + m };
+}
+
+function lateMinutes() {
+  const { totalMinutes } = currentHourMinute();
+  const start = WORK_START_HOUR * 60;
+  return totalMinutes > start ? totalMinutes - start : 0;
+}
+
+function earlyLeaveMinutes() {
+  const { totalMinutes } = currentHourMinute();
+  const end = WORK_END_HOUR * 60;
+  return totalMinutes < end ? end - totalMinutes : 0;
 }
 
 function formatMoney(amount) {
@@ -801,7 +830,48 @@ async function handleMessage(message) {
     return;
   }
 
+  if (text === "🚪 Шығып жатырмын") {
+    await handleWorkerCheckout(chatId, userId);
+    return;
+  }
+
   await sendMessage(chatId, "Төмендегі түймелерді пайдаланыңыз.", { reply_markup: workerKeyboard() });
+}
+
+async function handleWorkerCheckout(chatId, userId) {
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await sendMessage(chatId, `Қате: ${error.message}`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  const employee = findEmployeeByTelegramId(state, userId);
+  if (!employee) {
+    await sendMessage(chatId, "Сіз әлі тіркелмегенсіз.", { reply_markup: workerKeyboard() });
+    return;
+  }
+  const today = state.today;
+  const existing = state.attendance?.[today]?.[employee.id];
+  if (!existing || existing.status !== "present") {
+    await sendMessage(chatId, "Бүгін жұмысқа белгіленбегенсіз немесе басқа статус қойылған.", { reply_markup: workerKeyboard() });
+    return;
+  }
+  const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  const early = earlyLeaveMinutes();
+  await sendMessage(chatId, [
+    `🚪 <b>${escapeHtml(employee.name)}</b>`,
+    "",
+    `Шығуды растайсыз ба? Сағат: <b>${time}</b>`,
+    early > 0 ? `⚠️ Ерте кету: ${early} минут бұрын (жұмыс ${WORK_END_HOUR}:00-де бітеді)` : "",
+  ].filter(Boolean).join("\n"), {
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "✅ Иә, шығамын", callback_data: `checkout:${employee.id}` },
+        { text: "❌ Жоқ", callback_data: "checkout_cancel" },
+      ]],
+    },
+  });
 }
 
 async function sendWorkerAdvance(chatId, userId) {
@@ -926,15 +996,21 @@ async function handleWorkerLocation(message, chatId, userId) {
     return;
   }
   const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  const late = lateMinutes();
+  const lateText = late > 0 ? `\n⚠️ <b>Кешіктіңіз: ${late} минут</b> (жұмыс 0${WORK_START_HOUR}:00-де басталады)` : "";
   await sendMessage(chatId, [
     `✅ <b>${escapeHtml(employee.name)}</b>`,
     "",
     `Бүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.`,
     `Қашықтық: ~${Math.round(dist)} м`,
-  ].join("\n"), { reply_markup: workerKeyboard() });
+    lateText,
+  ].filter(Boolean).join("\n"), { reply_markup: workerKeyboard() });
+  const adminMsg = late > 0
+    ? `⚠️ <b>${escapeHtml(employee.name)}</b> ${late} минутқа кешікті (${time})`
+    : `📍 <b>${escapeHtml(employee.name)}</b> жұмысқа келді (${time})`;
   for (const adminId of ADMIN_IDS) {
     try {
-      await sendMessage(adminId, `📍 <b>${escapeHtml(employee.name)}</b> жұмысқа келді (${time})`);
+      await sendMessage(adminId, adminMsg);
     } catch {}
   }
 }
@@ -1072,6 +1148,18 @@ async function postApiAttendance(payload) {
   return result;
 }
 
+async function postApiCheckout(payload) {
+  if (!MINI_APP_URL) throw new Error("MINI_APP_URL орнатылмаған");
+  const response = await fetch(`${MINI_APP_URL}/api/checkout`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
+  return result;
+}
+
 function distanceMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -1180,11 +1268,23 @@ async function handleLocationMessage(chatId, fromUser, location) {
   }
   checkinSessions.delete(userId);
   const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  const late = lateMinutes();
   await sendMessage(
     chatId,
-    `✅ <b>${escapeHtml(employee.name)}</b>\n\nБүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.\nҚашықтық: ~${Math.round(dist)} м`,
+    [
+      `✅ <b>${escapeHtml(employee.name)}</b>`,
+      "",
+      `Бүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.`,
+      `Қашықтық: ~${Math.round(dist)} м`,
+      late > 0 ? `⚠️ <b>Кешіктіңіз: ${late} минут</b> (жұмыс 0${WORK_START_HOUR}:00-де басталады)` : "",
+    ].filter(Boolean).join("\n"),
     { reply_markup: { remove_keyboard: true } },
   );
+  if (late > 0) {
+    for (const adminId of ADMIN_IDS) {
+      try { await sendMessage(adminId, `⚠️ <b>${escapeHtml(employee.name)}</b> ${late} минутқа кешікті (${time})`); } catch {}
+    }
+  }
 }
 
 async function handleCheckinCallback(callback, employeeId) {
@@ -1212,8 +1312,58 @@ async function handleCheckinCallback(callback, employeeId) {
     return;
   }
   const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  const late = lateMinutes();
   await answerCallback(callback.id, "Белгіленді ✅");
-  await editMessage(chatId, messageId, `✅ <b>${escapeHtml(employee.name)}</b>\nБүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.`, { reply_markup: { inline_keyboard: [] } });
+  await editMessage(chatId, messageId, [
+    `✅ <b>${escapeHtml(employee.name)}</b>`,
+    `Бүгін <b>${time}</b> кезінде жұмысқа келді деп белгіленді.`,
+    late > 0 ? `⚠️ Кешіктіңіз: ${late} минут (жұмыс 0${WORK_START_HOUR}:00-де басталады)` : "",
+  ].filter(Boolean).join("\n"), { reply_markup: { inline_keyboard: [] } });
+  if (late > 0) {
+    for (const adminId of ADMIN_IDS) {
+      try { await sendMessage(adminId, `⚠️ <b>${escapeHtml(employee.name)}</b> ${late} минутқа кешікті (${time})`); } catch {}
+    }
+  }
+}
+
+async function handleCheckoutCallback(callback, employeeId) {
+  const chatId = callback.message.chat.id;
+  const messageId = callback.message.message_id;
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await answerCallback(callback.id, "Қате");
+    return;
+  }
+  const employee = [...(state.employees || []), ...(state.archivedEmployees || [])].find((emp) => emp.id === employeeId);
+  if (!employee) {
+    await answerCallback(callback.id, "Қызметкер табылмады");
+    return;
+  }
+  const today = state.today;
+  const time = new Intl.DateTimeFormat("ru-RU", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date());
+  const early = earlyLeaveMinutes();
+  try {
+    await postApiCheckout({ date: today, employeeId, checkOutTime: time, earlyMinutes: early });
+  } catch (error) {
+    await answerCallback(callback.id, "Сақталмады");
+    await sendMessage(chatId, `Қате: ${error.message}`, { reply_markup: workerKeyboard() });
+    return;
+  }
+  await answerCallback(callback.id, "Шығу белгіленді ✅");
+  await editMessage(chatId, messageId, [
+    `🚪 <b>${escapeHtml(employee.name)}</b>`,
+    "",
+    `Шығу уақыты: <b>${time}</b>`,
+    early > 0 ? `⚠️ Жұмыстан ${early} минут ерте кетті (${WORK_END_HOUR}:00-де бітеді)` : "✅ Жұмыс уақыты толық аяқталды",
+  ].filter(Boolean).join("\n"), { reply_markup: { inline_keyboard: [] } });
+  const adminMsg = early > 0
+    ? `⚠️ <b>${escapeHtml(employee.name)}</b> жұмыстан ${early} минут ерте кетті (${time})`
+    : `🚪 <b>${escapeHtml(employee.name)}</b> жұмыстан шықты (${time})`;
+  for (const adminId of ADMIN_IDS) {
+    try { await sendMessage(adminId, adminMsg); } catch {}
+  }
 }
 
 async function handleCallback(callback) {
@@ -1224,6 +1374,19 @@ async function handleCallback(callback) {
 
   if (dataValue.startsWith("checkin:")) {
     await handleCheckinCallback(callback, dataValue.slice("checkin:".length));
+    return;
+  }
+
+  if (dataValue === "checkout_cancel") {
+    await answerCallback(callback.id, "Болдырмадыңыз");
+    try {
+      await telegram("deleteMessage", { chat_id: callback.message.chat.id, message_id: callback.message.message_id });
+    } catch {}
+    return;
+  }
+
+  if (dataValue.startsWith("checkout:")) {
+    await handleCheckoutCallback(callback, dataValue.slice("checkout:".length));
     return;
   }
 

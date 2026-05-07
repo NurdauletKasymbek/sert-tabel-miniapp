@@ -26,7 +26,7 @@ function labelToSchedule(label) {
 function scheduleToLabel(schedule) {
   return SCHEDULE_LABELS[schedule] || SCHEDULE_LABELS.standard;
 }
-const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні", "Рөлі", "Белгі", "Уақыт", "Жаңартылды"];
+const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні", "Рөлі", "Белгі", "Уақыт", "Жаңартылды", "Кіру", "Шығу", "Кешіктіру(мин)", "Ерте кету(мин)"];
 const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"];
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
@@ -254,7 +254,7 @@ async function ensureSheets() {
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 
   await ensureHeader(a1(SHEETS.employees, "A1:H1"), EMPLOYEE_HEADERS);
-  await ensureHeader(a1(SHEETS.attendance, "A1:G1"), ATTENDANCE_HEADERS);
+  await ensureHeader(a1(SHEETS.attendance, "A1:K1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
   await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
   await clearRange(a1(SHEETS.advances, "E1:E5000"));
@@ -366,6 +366,10 @@ function rowToAttendance(row) {
     label: row[4] || "",
     time: row[5] || "",
     updatedAt: row[6] || "",
+    checkInTime: row[7] || "",
+    checkOutTime: row[8] || "",
+    lateMinutes: row[9] ? Number(row[9]) : 0,
+    earlyMinutes: row[10] ? Number(row[10]) : 0,
   };
 }
 
@@ -381,11 +385,19 @@ export async function loadStore() {
   await ensureSheets();
   const [employeeRows, attendanceRows, advanceRows, historyRows] = await Promise.all([
     getValues(a1(SHEETS.employees, "A2:H1000")),
-    getValues(a1(SHEETS.attendance, "A2:G5000")),
+    getValues(a1(SHEETS.attendance, "A2:K5000")),
     getValues(a1(SHEETS.advances, "A2:D5000")),
     getValues(a1(SHEETS.history, "A2:G5000")),
   ]);
-  const employees = employeeRows.filter((row) => row[0]).map(rowToEmployee);
+  const employees = employeeRows
+    .filter((row) => row[0] || row[1])
+    .map((row) => {
+      if (!row[0] && row[1]) {
+        const nameKey = String(row[1]).trim().toLowerCase().replace(/[^a-zA-Zа-яА-ЯёЁіІңҢүҮұҰәӘөӨ0-9]/g, "_");
+        row = [`name_${nameKey}`, ...row.slice(1)];
+      }
+      return rowToEmployee(row);
+    });
   const attendance = attendanceRows.filter((row) => row[0] && row[1]).map(rowToAttendance);
   const employeeByName = new Map(employees.map((employee) => [employee.name.trim().toLowerCase(), employee.id]));
   const advances = advanceRows.filter((row) => row[0] && row[1]).map((row) => {
@@ -581,9 +593,9 @@ export async function saveEmployees(employees) {
 
 export async function saveAttendance(attendance) {
   await ensureSheets();
-  await clearRange(a1(SHEETS.attendance, "A2:G5000"));
+  await clearRange(a1(SHEETS.attendance, "A2:K5000"));
   if (attendance.length) {
-    await updateRange(a1(SHEETS.attendance, "A2:G5000"), attendance.map((row) => [
+    await updateRange(a1(SHEETS.attendance, "A2:K5000"), attendance.map((row) => [
       row.date,
       row.employeeId,
       row.name,
@@ -591,6 +603,10 @@ export async function saveAttendance(attendance) {
       row.label,
       row.time,
       row.updatedAt,
+      row.checkInTime || "",
+      row.checkOutTime || "",
+      row.lateMinutes || "",
+      row.earlyMinutes || "",
     ]));
   }
 }
@@ -662,6 +678,13 @@ export function assertNotFutureDate(date) {
 }
 
 export { STATUSES, statusToLabel };
+
+export async function appendAdvance(date, employeeName, amount, note) {
+  await ensureSheets();
+  const existing = await getValues(a1(SHEETS.advances, "A2:D5000"));
+  const nextRow = existing.length + 2;
+  await updateRange(a1(SHEETS.advances, `A${nextRow}:D${nextRow}`), [[date, employeeName, amount, note || ""]]);
+}
 
 async function applyBasicFormatting() {
   const spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title,hidden)");
