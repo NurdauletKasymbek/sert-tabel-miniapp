@@ -221,7 +221,17 @@ function a1(sheetName, cellRange) {
   return `'${sheetName.replaceAll("'", "''")}'!${cellRange}`;
 }
 
+let ensureSheetsLastRun = 0;
+const ENSURE_SHEETS_TTL_MS = 60_000;
+let storeCache = null;
+const STORE_CACHE_TTL_MS = 10_000;
+
+export function invalidateStoreCache() {
+  storeCache = null;
+}
+
 async function ensureSheets() {
+  if (Date.now() - ensureSheetsLastRun < ENSURE_SHEETS_TTL_MS) return;
   let spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title,hidden)");
   let sheets = spreadsheet.sheets.map((sheet) => sheet.properties);
   const titles = new Set(sheets.map((sheet) => sheet.title));
@@ -260,6 +270,7 @@ async function ensureSheets() {
   await clearRange(a1(SHEETS.advances, "E1:E5000"));
   await ensureAdvanceNameValidation();
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
+  ensureSheetsLastRun = Date.now();
 }
 
 async function ensureAdvanceNameValidation() {
@@ -382,6 +393,9 @@ function statusToLabel(status) {
 }
 
 export async function loadStore() {
+  if (storeCache && Date.now() - storeCache.at < STORE_CACHE_TTL_MS) {
+    return storeCache.data;
+  }
   await ensureSheets();
   const [employeeRows, attendanceRows, advanceRows, historyRows] = await Promise.all([
     getValues(a1(SHEETS.employees, "A2:H1000")),
@@ -419,7 +433,9 @@ export async function loadStore() {
     oldLabel: row[5],
     newLabel: row[6],
   }));
-  return { employees, attendance, advances, history };
+  const data = { employees, attendance, advances, history };
+  storeCache = { at: Date.now(), data };
+  return data;
 }
 
 export function publicState(store) {
@@ -612,12 +628,14 @@ export function nextEmployeeId(employees) {
 }
 
 export async function saveEmployees(employees) {
+  storeCache = null;
   await ensureSheets();
   await clearRange(a1(SHEETS.employees, "A2:H1000"));
   if (employees.length) await updateRange(a1(SHEETS.employees, "A2:H1000"), employees.map(employeeToRow));
 }
 
 export async function saveAttendance(attendance) {
+  storeCache = null;
   await ensureSheets();
   await clearRange(a1(SHEETS.attendance, "A2:K5000"));
   if (attendance.length) {
@@ -639,6 +657,7 @@ export async function saveAttendance(attendance) {
 
 export async function appendHistory(rows) {
   if (!rows.length) return;
+  storeCache = null;
   await ensureSheets();
   const existing = await getValues(a1(SHEETS.history, "A2:G5000"));
   await updateRange(a1(SHEETS.history, `A${existing.length + 2}:G5000`), rows.map((row) => [
@@ -709,6 +728,7 @@ export function assertNotFutureDate(date) {
 export { STATUSES, statusToLabel };
 
 export async function appendAdvance(date, employeeName, amount, note) {
+  storeCache = null;
   await ensureSheets();
   const existing = await getValues(a1(SHEETS.advances, "A2:D5000"));
   const nextRow = existing.length + 2;
