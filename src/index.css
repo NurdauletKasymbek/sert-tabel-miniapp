@@ -330,6 +330,11 @@ button {
   color: #f0f4ff;
 }
 
+.form-input-dark option {
+  background: #0a1126;
+  color: #f0f4ff;
+}
+
 .form-input-dark::placeholder {
   color: #64748b;
 }
