@@ -1396,9 +1396,9 @@ function AdvanceFormModal({ isDark, employees, today, onClose, onSuccess }) {
     setSaving(true);
     setError("");
     try {
-      await api("/api/advances", {
+      await api("/api/state", {
         method: "POST",
-        body: JSON.stringify({ date, employeeName: empName, amount: Number(amount), note }),
+        body: JSON.stringify({ action: "advance", date, employeeName: empName, amount: Number(amount), note }),
       });
       haptic("success");
       onSuccess();

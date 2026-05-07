@@ -11,9 +11,43 @@ export default async function handler(req, res) {
     const store = await loadStore();
     const date = String(body.date || "");
     const employeeId = String(body.employeeId || "");
-    const status = String(body.status || "");
+    const action = String(body.action || "").toLowerCase();
     const employee = store.employees.find((item) => item.id === employeeId);
 
+    if (action === "checkout") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !employee) {
+        res.status(400).json({ error: "Күн немесе қызметкер ID қате" });
+        return;
+      }
+      const checkOutTime = String(body.checkOutTime || "");
+      const earlyMinutes = Number(body.earlyMinutes) || 0;
+      const existing = [...store.attendance].reverse().find((row) => row.date === date && row.employeeId === employeeId);
+      if (!existing) {
+        res.status(400).json({ error: "Бүгінгі кіру белгісі табылмады" });
+        return;
+      }
+      store.attendance = store.attendance.filter((row) => !(row.date === date && row.employeeId === employeeId));
+      store.attendance.push({
+        ...existing,
+        checkOutTime,
+        earlyMinutes,
+        updatedAt: new Date().toISOString(),
+      });
+      await saveAttendance(store.attendance);
+      await appendHistory([{
+        at: new Date().toISOString(),
+        action: "Шығу белгіленді",
+        employeeId,
+        name: employee.name,
+        date,
+        oldLabel: existing.label,
+        newLabel: `Шығу: ${checkOutTime}${earlyMinutes > 0 ? ` (${earlyMinutes} мин ерте)` : ""}`,
+      }]);
+      res.status(200).json(publicState(store));
+      return;
+    }
+
+    const status = String(body.status || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !employee || !STATUSES[status]) {
       res.status(400).json({ error: "Күн, қызметкер немесе статус қате" });
       return;

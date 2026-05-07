@@ -1150,10 +1150,10 @@ async function postApiAttendance(payload) {
 
 async function postApiCheckout(payload) {
   if (!MINI_APP_URL) throw new Error("MINI_APP_URL орнатылмаған");
-  const response = await fetch(`${MINI_APP_URL}/api/checkout`, {
+  const response = await fetch(`${MINI_APP_URL}/api/attendance`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, action: "checkout" }),
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
