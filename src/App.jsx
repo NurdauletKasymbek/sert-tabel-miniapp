@@ -1444,7 +1444,7 @@ function NotificationsList({ isDark, history }) {
   return (
     <div className="space-y-2">
       {history.map((item, idx) => {
-        const time = item.at ? new Date(item.at).toLocaleString("kk-KZ", { timeZone: "Asia/Almaty", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+        const time = item.at ? new Date(item.at).toLocaleString("kk-KZ", { timeZone: "Asia/Tashkent", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
         return (
           <div key={idx} className={cx("rounded-[16px] px-3 py-2.5", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
             <div className="flex items-center justify-between gap-2">

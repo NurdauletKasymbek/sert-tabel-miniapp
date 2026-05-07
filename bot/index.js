@@ -13,7 +13,7 @@ loadEnvFile(path.join(__dirname, "..", ".env"));
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ADMIN_IDS = new Set((process.env.ADMIN_TELEGRAM_IDS || "").split(",").map((id) => id.trim()).filter(Boolean));
-const TIME_ZONE = process.env.BOT_TIMEZONE || "Asia/Almaty";
+const TIME_ZONE = process.env.BOT_TIMEZONE || "Asia/Tashkent";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || "";
 const MINI_APP_URL = process.env.MINI_APP_URL || "";
 const WORKPLACE_LAT = Number.parseFloat(process.env.WORKPLACE_LAT || "");

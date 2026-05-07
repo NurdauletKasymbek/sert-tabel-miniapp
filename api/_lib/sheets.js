@@ -424,7 +424,7 @@ export async function loadStore() {
 
 export function publicState(store) {
   const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: process.env.BOT_TIMEZONE || "Asia/Almaty",
+    timeZone: process.env.BOT_TIMEZONE || "Asia/Tashkent",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -685,7 +685,7 @@ export async function rebuildSummary(store) {
 
 export function currentTime() {
   return new Intl.DateTimeFormat("kk-KZ", {
-    timeZone: process.env.BOT_TIMEZONE || "Asia/Almaty",
+    timeZone: process.env.BOT_TIMEZONE || "Asia/Tashkent",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date());
@@ -693,7 +693,7 @@ export function currentTime() {
 
 export function todayDate() {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: process.env.BOT_TIMEZONE || "Asia/Almaty",
+    timeZone: process.env.BOT_TIMEZONE || "Asia/Tashkent",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

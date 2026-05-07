@@ -12,7 +12,7 @@ function assertCron(req) {
 
 function localHourMinute() {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: process.env.BOT_TIMEZONE || "Asia/Almaty",
+    timeZone: process.env.BOT_TIMEZONE || "Asia/Tashkent",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
