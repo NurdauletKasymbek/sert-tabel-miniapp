@@ -87,7 +87,12 @@ function loadGoogleServiceAccount() {
     ? path.resolve(__dirname, "..", process.env.GOOGLE_SERVICE_ACCOUNT_JSON)
     : path.join(__dirname, "google-service-account.json");
   if (!existsSync(filePath)) return null;
-  return JSON.parse(readFileSync(filePath, "utf8"));
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (error) {
+    console.error(`google-service-account.json оқылмады: ${error.message}`);
+    return null;
+  }
 }
 
 function cleanGoogleEmail(value = "") {
@@ -205,12 +210,23 @@ function inlineKeyboard(rows) {
 }
 
 async function telegram(method, payload) {
-  const response = await fetch(`${API_URL}/${method}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const result = await response.json();
+  let response;
+  try {
+    response = await fetch(`${API_URL}/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error(`${method}: желі қатесі — ${error.message}`);
+  }
+  const text = await response.text();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    throw new Error(`${method}: HTTP ${response.status} ${response.statusText || ""} — ${text.slice(0, 120)}`);
+  }
   if (!result.ok) throw new Error(`${method}: ${result.description || "Telegram қатесі"}`);
   return result.result;
 }
@@ -239,7 +255,9 @@ async function sendDocument(chatId, fileName, content, caption) {
   form.append("caption", caption);
   form.append("document", new Blob([content], { type: "text/csv;charset=utf-8" }), fileName);
   const response = await fetch(`${API_URL}/sendDocument`, { method: "POST", body: form });
-  const result = await response.json();
+  const text = await response.text();
+  let result;
+  try { result = JSON.parse(text); } catch { throw new Error(`sendDocument: HTTP ${response.status} — ${text.slice(0, 120)}`); }
   if (!result.ok) throw new Error(result.description || "CSV жіберілмеді");
 }
 
@@ -253,7 +271,9 @@ async function sendPhoto(chatId, buffer, caption, extra = {}) {
   form.append("photo", new Blob([buffer], { type: "image/png" }), "qr.png");
   if (extra.reply_markup) form.append("reply_markup", JSON.stringify(extra.reply_markup));
   const response = await fetch(`${API_URL}/sendPhoto`, { method: "POST", body: form });
-  const result = await response.json();
+  const text = await response.text();
+  let result;
+  try { result = JSON.parse(text); } catch { throw new Error(`sendPhoto: HTTP ${response.status} — ${text.slice(0, 120)}`); }
   if (!result.ok) throw new Error(result.description || "Сурет жіберілмеді");
   return result.result;
 }
@@ -1709,6 +1729,8 @@ async function configureBotMenu() {
 
 async function poll() {
   let offset = 0;
+  let consecutiveErrors = 0;
+  let lastErrorMessage = "";
   console.log(`Бот іске қосылды: ${BOT_VERSION}. Уақыт белдеуі: ${TIME_ZONE}`);
   await configureBotMenu();
   setInterval(() => {
@@ -1723,17 +1745,40 @@ async function poll() {
         timeout: 30,
         allowed_updates: ["message", "callback_query"],
       });
+      consecutiveErrors = 0;
+      lastErrorMessage = "";
 
       for (const update of updates) {
         offset = update.update_id + 1;
-        if (update.message) await handleMessage(update.message);
-        if (update.callback_query) await handleCallback(update.callback_query);
+        try {
+          if (update.message) await handleMessage(update.message);
+          if (update.callback_query) await handleCallback(update.callback_query);
+        } catch (error) {
+          console.error(`Update ${update.update_id} өңделмеді: ${error.message}`);
+        }
       }
     } catch (error) {
-      console.error(error.message);
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      consecutiveErrors += 1;
+      if (error.message !== lastErrorMessage) {
+        console.error(error.message);
+        lastErrorMessage = error.message;
+      } else if (consecutiveErrors % 20 === 0) {
+        console.error(`(${consecutiveErrors}x) ${error.message}`);
+      }
+      const delay = Math.min(60_000, 1000 * 2 ** Math.min(consecutiveErrors - 1, 6));
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }
 
-poll();
+process.on("unhandledRejection", (reason) => {
+  console.error(`unhandledRejection: ${reason?.stack || reason?.message || reason}`);
+});
+process.on("uncaughtException", (error) => {
+  console.error(`uncaughtException: ${error?.stack || error?.message || error}`);
+});
+
+poll().catch((error) => {
+  console.error(`poll() exited: ${error?.stack || error?.message || error}`);
+  process.exit(1);
+});
