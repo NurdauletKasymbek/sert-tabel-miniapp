@@ -3,6 +3,7 @@ import {
   Archive,
   ArrowLeft,
   BarChart3,
+  Bell,
   BriefcaseBusiness,
   QrCode,
   Copy,
@@ -14,6 +15,7 @@ import {
   CircleMinus,
   Clock3,
   FileSpreadsheet,
+  Megaphone,
   Moon,
   Plus,
   RotateCcw,
@@ -181,6 +183,8 @@ function App() {
   const [pendingStatus, setPendingStatus] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [qrEmployee, setQrEmployee] = useState(null);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [accessState, setAccessState] = useState("checking");
 
@@ -316,6 +320,15 @@ function App() {
     } finally {
       setSavingEmployee(false);
     }
+  }
+
+  async function sendBroadcast(text) {
+    if (!text.trim()) return { sent: 0, failed: 0 };
+    const result = await api("/api/state", {
+      method: "POST",
+      body: JSON.stringify({ action: "broadcast", text: text.trim() }),
+    });
+    return result;
   }
 
   async function archiveSelected() {
@@ -513,6 +526,17 @@ function App() {
             <div className="flex items-center gap-2">
               <motion.button
                 whileTap={{ scale: 0.92 }}
+                onClick={() => { haptic("light"); setNotificationsOpen(true); }}
+                className="glass-icon relative text-white"
+                aria-label="Хабарламалар"
+              >
+                <Bell className="size-5" />
+                {(state.recentHistory?.length || 0) > 0 && (
+                  <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white/30" />
+                )}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.92 }}
                 onClick={() => { haptic("light"); setStatsOpen(true); }}
                 className="glass-icon text-white"
                 aria-label="Айлық статистика"
@@ -539,7 +563,16 @@ function App() {
           <div className="relative mt-4 grid grid-cols-3 gap-2">
             <Metric icon={UsersRound} label="Қызметкер" value={employees.length} />
             <Metric icon={CalendarCheck2} label="Белгі қойылды" value={`${state.todayControl?.total - state.todayControl?.unmarked || 0}/${state.todayControl?.total || 0}`} />
-            <Metric icon={ShieldCheck} label="Бақылау" value={state.todayControl?.unmarked ? "Ашық" : "Дайын"} />
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => { haptic("light"); setBroadcastOpen(true); }}
+              className="rounded-[20px] border border-white/18 bg-white/12 p-3 text-left backdrop-blur transition active:bg-white/20"
+              aria-label="Хабарландыру жіберу"
+            >
+              <Megaphone className="size-4 text-white/76" />
+              <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/52">Хабарландыру</p>
+              <p className="text-lg font-black">Жіберу</p>
+            </motion.button>
           </div>
         </header>
 
@@ -797,40 +830,29 @@ function App() {
               <span className={cx("form-label", isDark && "form-label-dark")}>Рөлі / бригадасы</span>
               <input value={newRole} onChange={(event) => setNewRole(event.target.value)} className={cx("form-input", isDark && "form-input-dark")} placeholder="Мысалы: Оператор, Қойма, Цех 1" />
             </label>
-            <div className="block">
-              <span className={cx("form-label", isDark && "form-label-dark")}>Жұмыс кестесі</span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => { haptic("selection"); setNewSchedule("standard"); }}
-                  className={cx(
-                    "rounded-[16px] px-3 py-3 text-left text-xs font-black ring-1 transition",
-                    newSchedule === "standard"
-                      ? "bg-[#0b1b5f] text-white ring-[#0b1b5f]"
-                      : isDark ? "bg-white/5 text-slate-200 ring-white/10" : "bg-white text-[#526176] ring-[#dfe6f2]",
-                  )}
-                >
-                  Стандарт
-                  <span className={cx("mt-1 block text-[10px] font-bold opacity-70", newSchedule === "standard" && "text-white/70")}>Дс — Жс толық күн</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { haptic("selection"); setNewSchedule("school-half"); }}
-                  className={cx(
-                    "rounded-[16px] px-3 py-3 text-left text-xs font-black ring-1 transition",
-                    newSchedule === "school-half"
-                      ? "bg-[#0b1b5f] text-white ring-[#0b1b5f]"
-                      : isDark ? "bg-white/5 text-slate-200 ring-white/10" : "bg-white text-[#526176] ring-[#dfe6f2]",
-                  )}
-                >
-                  Жартылай (мектеп)
-                  <span className={cx("mt-1 block text-[10px] font-bold opacity-70", newSchedule === "school-half" && "text-white/70")}>Дс-Жм жарты, Сб толық</span>
-                </button>
-              </div>
-            </div>
             <motion.button whileTap={{ scale: 0.97 }} onClick={addEmployee} disabled={!newName.trim() || savingEmployee} className="mt-4 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50">
               {savingEmployee ? "Сақталып жатыр..." : "Қосу және сақтау"}
             </motion.button>
+          </Modal>
+        )}
+
+        {broadcastOpen && (
+          <Modal isDark={isDark} title="📢 Жалпы хабарландыру" onClose={() => setBroadcastOpen(false)}>
+            <BroadcastModal
+              isDark={isDark}
+              onSend={async (text) => {
+                const result = await sendBroadcast(text);
+                showToast("success", `${result.sent || 0} қызметкерге жіберілді${result.failed ? `, ${result.failed} жіберілмеді` : ""}`);
+                setBroadcastOpen(false);
+              }}
+              onError={(message) => showToast("error", message)}
+            />
+          </Modal>
+        )}
+
+        {notificationsOpen && (
+          <Modal isDark={isDark} title="🔔 Хабарламалар" onClose={() => setNotificationsOpen(false)}>
+            <NotificationsList isDark={isDark} history={state.recentHistory || []} />
           </Modal>
         )}
 
@@ -1312,11 +1334,6 @@ function StatsView({ isDark, state, month, onRefresh }) {
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className={cx("truncate text-sm font-black", isDark ? "text-white" : "text-[#07122b]")}>{row.employee.name}</p>
-                        {row.employee.schedule === "school-half" && (
-                          <span className={cx("shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider", isDark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800")}>
-                            Жарт.
-                          </span>
-                        )}
                       </div>
                       <p className={cx("truncate text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
                         {row.employee.role || "Қызметкер"}
@@ -1370,6 +1387,78 @@ function StatsView({ isDark, state, month, onRefresh }) {
           </Modal>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function BroadcastModal({ isDark, onSend, onError }) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function submit() {
+    if (!text.trim() || sending) return;
+    haptic("medium");
+    setSending(true);
+    try {
+      await onSend(text);
+    } catch (err) {
+      haptic("error");
+      onError?.(err.message || "Жіберілмеді");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className={cx("text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+        Хабарлама барлық тіркелген қызметкерлерге Telegram арқылы жіберіледі.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Хабарлама мәтіні..."
+        rows={5}
+        className={cx("form-input resize-none", isDark && "form-input-dark")}
+      />
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={submit}
+        disabled={sending || !text.trim()}
+        className="w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50"
+      >
+        {sending ? "Жіберілуде..." : "📤 Жіберу"}
+      </motion.button>
+    </div>
+  );
+}
+
+function NotificationsList({ isDark, history }) {
+  if (!history.length) {
+    return (
+      <div className={cx("rounded-[18px] p-4 text-center text-sm font-bold", isDark ? "bg-white/5 text-slate-400" : "bg-[#f4f7fc] text-[#7a86a0]")}>
+        Әзірге хабарламалар жоқ.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {history.map((item, idx) => {
+        const time = item.at ? new Date(item.at).toLocaleString("kk-KZ", { timeZone: "Asia/Almaty", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+        return (
+          <div key={idx} className={cx("rounded-[16px] px-3 py-2.5", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
+            <div className="flex items-center justify-between gap-2">
+              <p className={cx("truncate text-sm font-black", isDark ? "text-white" : "text-[#07122b]")}>
+                {item.action || "Оқиға"}
+              </p>
+              <span className={cx("shrink-0 text-[10px] font-bold", isDark ? "text-slate-500" : "text-[#94a3b8]")}>{time}</span>
+            </div>
+            <p className={cx("mt-1 text-xs font-bold", isDark ? "text-slate-300" : "text-[#526176]")}>
+              {item.name}{item.newLabel ? ` — ${item.newLabel}` : ""}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }

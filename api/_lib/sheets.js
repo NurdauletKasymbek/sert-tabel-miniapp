@@ -27,7 +27,7 @@ function scheduleToLabel(schedule) {
   return SCHEDULE_LABELS[schedule] || SCHEDULE_LABELS.standard;
 }
 const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні", "Рөлі", "Белгі", "Уақыт", "Жаңартылды", "Кіру", "Шығу", "Кешіктіру(мин)", "Ерте кету(мин)"];
-const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"];
+const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген", "Жалпы күн", "Жалпы сағат"];
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
 const ADVANCE_HEADERS = ["Күні", "Аты-жөні", "Сома", "Ескертпе"];
@@ -255,7 +255,7 @@ async function ensureSheets() {
 
   await ensureHeader(a1(SHEETS.employees, "A1:H1"), EMPLOYEE_HEADERS);
   await ensureHeader(a1(SHEETS.attendance, "A1:K1"), ATTENDANCE_HEADERS);
-  await ensureHeader(a1(SHEETS.reports, "A1:I1"), SUMMARY_HEADERS);
+  await ensureHeader(a1(SHEETS.reports, "A1:K1"), SUMMARY_HEADERS);
   await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
   await clearRange(a1(SHEETS.advances, "E1:E5000"));
   await ensureAdvanceNameValidation();
@@ -440,7 +440,11 @@ export function publicState(store) {
   const activeEmployees = store.employees
     .filter((employee) => employee.status !== "archived")
     .sort((a, b) => a.name.localeCompare(b.name, "kk"))
-    .map((employee) => ({ ...employee, counts: statusCounts(attendanceMap, employee.id, month) }));
+    .map((employee) => ({
+      ...employee,
+      counts: statusCounts(attendanceMap, employee.id, month),
+      hoursMonth: monthlyHours(store.attendance, employee.id, month),
+    }));
   const todayRecords = attendanceMap[today] || {};
   const unmarkedEmployees = activeEmployees.filter((employee) => !todayRecords[employee.id]);
   const todayControl = dayControl(attendanceMap, activeEmployees, today);
@@ -495,6 +499,28 @@ export function statusCountsUntil(attendanceMap, employeeId, month, untilDate = 
     if (counts[status] !== undefined) counts[status] += 1;
   }
   return counts;
+}
+
+function timeStringToMinutes(time) {
+  if (!time) return 0;
+  const [h, m] = String(time).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+export function monthlyHours(attendance, employeeId, month) {
+  let totalMinutes = 0;
+  let totalDays = 0;
+  for (const row of attendance) {
+    if (!row.date.startsWith(month)) continue;
+    if (row.employeeId !== employeeId) continue;
+    if (row.label === "Жұмыста") totalDays += 1;
+    else if (row.label === "Жарты күн") totalDays += 0.5;
+    if (row.checkInTime && row.checkOutTime) {
+      const minutes = timeStringToMinutes(row.checkOutTime) - timeStringToMinutes(row.checkInTime);
+      if (minutes > 0) totalMinutes += minutes;
+    }
+  }
+  return { totalDays, totalHours: Math.round((totalMinutes / 60) * 10) / 10 };
 }
 
 function escapeHtml(value) {
@@ -636,6 +662,7 @@ export async function rebuildSummary(store) {
   for (const month of [...months].sort()) {
     for (const employee of employees) {
       const counts = statusCounts(attendanceMap, employee.id, month);
+      const hours = monthlyHours(store.attendance, employee.id, month);
       rows.push([
         month,
         employee.id,
@@ -646,11 +673,13 @@ export async function rebuildSummary(store) {
         counts.absent,
         counts.dayoff,
         counts.present + counts.half + counts.absent + counts.dayoff,
+        hours.totalDays,
+        hours.totalHours,
       ]);
     }
   }
-  await clearRange(a1(SHEETS.reports, "A1:I2000"));
-  await updateRange(a1(SHEETS.reports, "A1:I2000"), rows);
+  await clearRange(a1(SHEETS.reports, "A1:K2000"));
+  await updateRange(a1(SHEETS.reports, "A1:K2000"), rows);
   await applyBasicFormatting();
 }
 

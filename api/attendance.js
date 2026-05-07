@@ -1,5 +1,14 @@
 import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, todayDate, STATUSES } from "./_lib/sheets.js";
 
+const HALF_DAY_AFTER_HOUR = 12;
+const HALF_DAY_THRESHOLD_HOURS = 4.5;
+
+function timeToMinutes(time) {
+  if (!time) return 0;
+  const [h, m] = String(time).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") {
@@ -26,9 +35,19 @@ export default async function handler(req, res) {
         res.status(400).json({ error: "Бүгінгі кіру белгісі табылмады" });
         return;
       }
+
+      let newLabel = existing.label;
+      if (existing.checkInTime && checkOutTime) {
+        const workedMinutes = timeToMinutes(checkOutTime) - timeToMinutes(existing.checkInTime);
+        if (workedMinutes > 0 && workedMinutes < HALF_DAY_THRESHOLD_HOURS * 60 && existing.label === "Жұмыста") {
+          newLabel = "Жарты күн";
+        }
+      }
+
       store.attendance = store.attendance.filter((row) => !(row.date === date && row.employeeId === employeeId));
       store.attendance.push({
         ...existing,
+        label: newLabel,
         checkOutTime,
         earlyMinutes,
         updatedAt: new Date().toISOString(),
@@ -41,41 +60,40 @@ export default async function handler(req, res) {
         name: employee.name,
         date,
         oldLabel: existing.label,
-        newLabel: `Шығу: ${checkOutTime}${earlyMinutes > 0 ? ` (${earlyMinutes} мин ерте)` : ""}`,
+        newLabel: `Шығу: ${checkOutTime}${earlyMinutes > 0 ? ` (${earlyMinutes} мин ерте)` : ""}${newLabel !== existing.label ? ` [${newLabel}]` : ""}`,
       }]);
+      await rebuildSummary({ ...store });
       res.status(200).json(publicState(store));
       return;
     }
 
-    const status = String(body.status || "");
+    let status = String(body.status || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !employee || !STATUSES[status]) {
       res.status(400).json({ error: "Күн, қызметкер немесе статус қате" });
       return;
     }
     assertNotFutureDate(date);
 
-    const label = statusToLabel(status);
     const existing = [...store.attendance].reverse().find((row) => row.date === date && row.employeeId === employeeId);
     const oldLabel = existing?.label || "";
     const role = employee.role || "Қызметкер";
+    const now = currentTime();
+    const isNewCheckIn = !existing && status === "present" && date === todayDate();
+
+    if (isNewCheckIn) {
+      const checkInHour = Number(now.split(":")[0] || 0);
+      if (checkInHour >= HALF_DAY_AFTER_HOUR) {
+        status = "half";
+      }
+    }
+    const label = statusToLabel(status);
 
     // Keep only one record per employee per day so changing a mistaken mark really replaces it.
     store.attendance = store.attendance.filter((row) => !(row.date === date && row.employeeId === employeeId));
-    const now = currentTime();
-    const isNewCheckIn = !existing && status === "present" && date === todayDate();
-    const newCheckIn = existing?.checkInTime || (status === "present" ? now : "");
+    const newCheckIn = existing?.checkInTime || ((status === "present" || status === "half") ? now : "");
     let lateMin = existing?.lateMinutes || 0;
     if (isNewCheckIn) {
-      const timeZone = process.env.BOT_TIMEZONE || "Asia/Almaty";
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone,
-        hour: "numeric",
-        minute: "numeric",
-        hour12: false,
-      }).formatToParts(new Date());
-      const h = Number(parts.find((p) => p.type === "hour")?.value || 0);
-      const m = Number(parts.find((p) => p.type === "minute")?.value || 0);
-      const total = h * 60 + m;
+      const total = timeToMinutes(now);
       lateMin = total > 9 * 60 ? total - 9 * 60 : 0;
     }
     store.attendance.push({
