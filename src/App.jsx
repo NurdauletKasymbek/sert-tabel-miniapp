@@ -219,9 +219,20 @@ function App() {
     (async () => {
       try {
         const tg = getTelegram();
+        if (tg) {
+          try { tg.ready(); } catch {}
+          // small delay so initDataUnsafe.user is populated reliably (esp. iOS)
+          await new Promise((r) => setTimeout(r, 50));
+        }
         const userId = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "";
         setTgUserId(userId);
-        const me = await api(`/api/me?full=1${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`);
+        if (!userId) {
+          // No telegram user id — must open inside Telegram
+          setAccessState("unregistered");
+          setLoading(false);
+          return;
+        }
+        const me = await api(`/api/me?full=1&userId=${encodeURIComponent(userId)}`);
         if (me.isAdmin) {
           setAccessState("admin");
           loadState();
@@ -233,9 +244,10 @@ function App() {
           setAccessState("unregistered");
           setLoading(false);
         }
-      } catch {
-        setAccessState("admin");
-        loadState();
+      } catch (err) {
+        console.error("access check failed", err);
+        setAccessState("error");
+        setLoading(false);
       }
     })();
   }, []);
@@ -511,6 +523,27 @@ function App() {
     return (
       <main className={cx("flex min-h-screen items-center justify-center", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
         <Clock3 className="size-8 animate-spin opacity-50" />
+      </main>
+    );
+  }
+
+  if (accessState === "error") {
+    return (
+      <main className={cx("flex min-h-screen items-center justify-center px-6", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
+        <div className={cx("w-full max-w-sm rounded-3xl px-6 py-10 text-center shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
+          <div className="mb-4 text-5xl">⚠️</div>
+          <h1 className="text-xl font-black">Уақытша қате</h1>
+          <p className={cx("mt-3 text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+            Сервер жауап бермеді. 1-2 минуттан кейін Mini App-ты қайта ашыңыз.
+          </p>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => window.location.reload()}
+            className="mt-5 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
+          >
+            🔄 Қайта жүктеу
+          </motion.button>
+        </div>
       </main>
     );
   }

@@ -59,7 +59,10 @@ export default async function handler(req, res) {
       }
 
       const wEmployee = store.employees.find(
-        (e) => String(e.telegramId || "").trim() === telegramId,
+        (e) => {
+          const tid = String(e.telegramId || "").trim();
+          return tid && tid === telegramId;
+        },
       );
       if (!wEmployee) {
         res.status(403).json({ error: "Сіз жүйеде тіркелмегенсіз. Әкімшіге хабарласыңыз." });

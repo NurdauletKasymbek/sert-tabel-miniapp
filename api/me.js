@@ -17,16 +17,24 @@ export default async function handler(req, res) {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    const isAdmin = adminIds.length === 0 || (userId && adminIds.includes(userId));
+    const isAdmin = Boolean(userId) && adminIds.includes(userId);
 
     if (!full) {
-      res.status(200).json({ isAdmin: Boolean(isAdmin), userId });
+      res.status(200).json({ isAdmin, userId });
+      return;
+    }
+
+    if (!userId) {
+      res.status(200).json({ isAdmin: false, userId: "", employee: null });
       return;
     }
 
     const store = await loadStore();
     const employee = store.employees.find(
-      (e) => String(e.telegramId || "").trim() === userId,
+      (e) => {
+        const tid = String(e.telegramId || "").trim();
+        return tid && tid === userId;
+      },
     );
 
     if (!employee) {
