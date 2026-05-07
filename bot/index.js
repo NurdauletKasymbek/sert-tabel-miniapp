@@ -732,14 +732,15 @@ const WORK_START_HOUR = 9;
 const WORK_END_HOUR = 18;
 
 function workerKeyboard() {
-  return {
-    keyboard: [
-      [{ text: "📍 Мен келдім", request_location: true }],
-      [{ text: "📅 Менің табелім" }, { text: "📊 Осы ай" }],
-      [{ text: "💰 Аванс" }, { text: "🚪 Шығып жатырмын" }],
-    ],
-    resize_keyboard: true,
-  };
+  if (MINI_APP_URL) {
+    return {
+      keyboard: [
+        [{ text: "📱 Жұмысшы кабинетін ашу", web_app: { url: MINI_APP_URL } }],
+      ],
+      resize_keyboard: true,
+    };
+  }
+  return { remove_keyboard: true };
 }
 
 function currentHourMinute() {
@@ -806,32 +807,23 @@ async function handleMessage(message) {
   }
 
   if (message.location) {
-    await handleWorkerLocation(message, chatId, userId);
+    await sendMessage(chatId, [
+      "❌ <b>Мұндай жолмен кіру қабылданбайды.</b>",
+      "",
+      "Жұмысқа кіру/шығу тек <b>Жұмысшы кабинеті</b> арқылы:",
+      "↓ Төмендегі батырманы басыңыз",
+    ].join("\n"), { reply_markup: workerKeyboard() });
     return;
   }
 
-  if (text === "📍 Мен келдім") {
-    await sendMessage(chatId, "📍 Орналасу батырмасын басыңыз ↓", { reply_markup: workerKeyboard() });
-    return;
-  }
-
-  if (text === "📅 Менің табелім") {
-    await sendWorkerMonth(chatId, userId);
-    return;
-  }
-
-  if (text === "📊 Осы ай") {
-    await sendWorkerStats(chatId, userId);
-    return;
-  }
-
-  if (text === "💰 Аванс") {
-    await sendWorkerAdvance(chatId, userId);
-    return;
-  }
-
-  if (text === "🚪 Шығып жатырмын") {
-    await handleWorkerCheckout(chatId, userId);
+  if (
+    text === "📍 Мен келдім" ||
+    text === "📅 Менің табелім" ||
+    text === "📊 Осы ай" ||
+    text === "💰 Аванс" ||
+    text === "🚪 Шығып жатырмын"
+  ) {
+    await sendMessage(chatId, "Енді барлық әрекеттер <b>Жұмысшы кабинетінде</b>. Төмендегі батырманы басыңыз ↓", { reply_markup: workerKeyboard() });
     return;
   }
 
@@ -928,9 +920,9 @@ async function sendWorkerWelcome(chatId, fromUser) {
   await sendMessage(chatId, [
     greeting,
     "",
-    "Жұмысқа келгенде <b>📍 Мен келдім</b> түймесін басып, орналасуыңды жібер.",
+    "Жұмысқа кіру, шығу, табельіңді көру — бәрі <b>Жұмысшы кабинетінде</b>.",
     "",
-    "Өзіңнің табеліңді көру үшін: <b>📅 Менің табелім</b>",
+    "↓ Төмендегі батырмасын басыңыз",
   ].join("\n"), { reply_markup: workerKeyboard() });
 }
 

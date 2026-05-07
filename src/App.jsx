@@ -187,6 +187,8 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [accessState, setAccessState] = useState("checking");
+  const [workerData, setWorkerData] = useState(null);
+  const [tgUserId, setTgUserId] = useState("");
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -218,20 +220,32 @@ function App() {
       try {
         const tg = getTelegram();
         const userId = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "";
-        const me = await api(`/api/me${userId ? `?userId=${encodeURIComponent(userId)}` : ""}`);
+        setTgUserId(userId);
+        const me = await api(`/api/me?full=1${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`);
         if (me.isAdmin) {
-          setAccessState("granted");
+          setAccessState("admin");
           loadState();
+        } else if (me.employee) {
+          setAccessState("worker");
+          setWorkerData(me);
+          setLoading(false);
         } else {
-          setAccessState("denied");
+          setAccessState("unregistered");
           setLoading(false);
         }
       } catch {
-        setAccessState("granted");
+        setAccessState("admin");
         loadState();
       }
     })();
   }, []);
+
+  async function refreshWorker() {
+    try {
+      const me = await api(`/api/me?full=1&userId=${encodeURIComponent(tgUserId)}`);
+      if (me.employee) setWorkerData(me);
+    } catch {}
+  }
 
   useEffect(() => {
     if (!selectedId && state.employees.length) setSelectedId(state.employees[0].id);
@@ -493,19 +507,38 @@ function App() {
   const isDark = theme === "dark";
   const todayDay = state.today?.startsWith(month) ? Number(state.today.slice(-2)) : null;
 
-  if (accessState === "denied") {
+  if (accessState === "checking") {
+    return (
+      <main className={cx("flex min-h-screen items-center justify-center", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
+        <Clock3 className="size-8 animate-spin opacity-50" />
+      </main>
+    );
+  }
+
+  if (accessState === "unregistered") {
     return (
       <main className={cx("flex min-h-screen items-center justify-center px-6", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
         <div className={cx("w-full max-w-sm rounded-3xl px-6 py-10 text-center shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
           <div className="mb-4 text-5xl">🔒</div>
-          <h1 className="text-xl font-black">Сізде рұқсат жоқ</h1>
+          <h1 className="text-xl font-black">Сіз әлі тіркелмегенсіз</h1>
           <p className={cx("mt-3 text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
-            Бұл қосымша тек әкімшіге арналған.
-            <br /><br />
-            Жұмысқа келген кезде есік алдындағы <b>QR кодты телефонмен сканерлеп</b> тіркеліңіз.
+            Жүйеге кіру үшін <b>әкімшіге</b> хабарласып, өзіңізді қызметкер ретінде тіркеттіріңіз.
           </p>
         </div>
       </main>
+    );
+  }
+
+  if (accessState === "worker" && workerData) {
+    return (
+      <WorkerApp
+        isDark={isDark}
+        theme={theme}
+        setTheme={setTheme}
+        data={workerData}
+        userId={tgUserId}
+        onRefresh={refreshWorker}
+      />
     );
   }
 
@@ -1388,6 +1421,292 @@ function StatsView({ isDark, state, month, onRefresh }) {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
+  const employee = data.employee;
+  const todayRow = data.todayRow;
+  const counts = data.counts || { present: 0, half: 0, absent: 0, dayoff: 0 };
+  const hours = data.hours || { totalDays: 0, totalHours: 0 };
+  const advanceTotal = data.advanceTotal || 0;
+  const broadcasts = data.broadcasts || [];
+  const month = data.month || "";
+
+  const [now, setNow] = useState(() => new Date());
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const checkInTime = todayRow?.checkInTime || "";
+  const checkOutTime = todayRow?.checkOutTime || "";
+  const stage = checkOutTime ? "done" : checkInTime ? "checked-in" : "idle";
+
+  async function performAction(action) {
+    if (busy) return;
+    haptic("medium");
+    setBusy(true);
+    setMessage(null);
+
+    try {
+      const coords = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error("Браузер геолокацияны қолдамайды"));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+          (err) => reject(new Error(err.message || "Геолокация алынбады. Қондырғыда GPS қосылғанын тексеріңіз.")),
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+        );
+      });
+
+      const result = await api("/api/attendance", {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          telegramId: userId,
+          lat: coords.lat,
+          lon: coords.lon,
+        }),
+      });
+
+      haptic("success");
+      setMessage({ type: "success", text: result.message || "Сәтті" });
+      setMessageOpen(true);
+      await onRefresh();
+    } catch (err) {
+      haptic("error");
+      setMessage({ type: "error", text: err.message || "Қате" });
+      setMessageOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const monthDays = useMemo(() => {
+    const map = {};
+    const labelToStatus = { "Жұмыста": "present", "Жарты күн": "half", "Жоқ": "absent", "Демалыс": "dayoff" };
+    for (const row of data.ownAttendance || []) {
+      map[row.date.slice(-2)] = labelToStatus[row.label] || "";
+    }
+    return map;
+  }, [data.ownAttendance]);
+
+  const daysInMonth = useMemo(() => {
+    if (!month) return 31;
+    const [y, m] = month.split("-").map(Number);
+    return new Date(y, m, 0).getDate();
+  }, [month]);
+
+  return (
+    <main className={cx("min-h-screen", isDark ? "bg-[#04060d]" : "bg-[#07101f]")}>
+      <section className={cx("app-shell mx-auto flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden shadow-2xl md:my-5 md:min-h-[860px] md:rounded-[34px]", isDark ? "bg-[#0a1126]" : "bg-[#f5f7fb]")}>
+        <header className="relative overflow-hidden px-5 pb-5 pt-5 text-white">
+          <div className={cx("absolute inset-0 -z-10", isDark ? "bg-gradient-to-br from-[#0b1b5f] via-[#040816] to-[#01030a]" : "bg-gradient-to-br from-[#0b1b5f] via-[#0d2070] to-[#06104a]")} />
+          <div className="relative flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Жұмысшы кабинеті</span>
+              <span className="text-lg font-black">{employee.name}</span>
+              <span className="text-xs font-bold text-white/70">{employee.role || "Қызметкер"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={() => { haptic("light"); setNotifOpen(true); }}
+                className="glass-icon relative text-white"
+                aria-label="Хабарламалар"
+              >
+                <Bell className="size-5" />
+                {broadcasts.length > 0 && (
+                  <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white/30" />
+                )}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={() => { haptic("light"); setTheme(theme === "dark" ? "light" : "dark"); }}
+                className="glass-icon text-white"
+                aria-label="Тема"
+              >
+                {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
+              </motion.button>
+            </div>
+          </div>
+
+          <div className="relative mt-5 flex items-center justify-between rounded-[22px] bg-white/12 px-4 py-3 backdrop-blur">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Уақыт</p>
+              <p className="text-xl font-black tabular-nums">
+                {now.toLocaleTimeString("kk-KZ", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Күні</p>
+              <p className="text-sm font-black">{data.today}</p>
+            </div>
+          </div>
+        </header>
+
+        <section className="flex-1 px-4 py-5">
+          <div className={cx("rounded-[26px] p-5 text-center shadow-xl", isDark ? "bg-white/5" : "bg-white")}>
+            {stage === "idle" && (
+              <>
+                <p className={cx("text-xs font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                  Бүгін кіру белгісі әлі жоқ
+                </p>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => performAction("worker-checkin")}
+                  disabled={busy}
+                  className="mt-4 w-full rounded-[24px] bg-gradient-to-br from-[#0b1b5f] to-[#1d3bbe] px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(11,27,95,0.45)] disabled:opacity-50"
+                >
+                  {busy ? "⏳ Тексерілуде..." : "📍 КІРУ"}
+                </motion.button>
+                <p className={cx("mt-3 text-[11px] font-bold", isDark ? "text-slate-500" : "text-[#94a3b8]")}>
+                  Батырманы жұмыс орнында ғана басыңыз
+                </p>
+              </>
+            )}
+            {stage === "checked-in" && (
+              <>
+                <p className={cx("text-xs font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                  Кіру белгіленді: <b>{checkInTime}</b>
+                </p>
+                {todayRow?.lateMinutes > 0 && (
+                  <p className="mt-1 text-xs font-bold text-amber-500">⚠️ {todayRow.lateMinutes} минут кешіктіру</p>
+                )}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => performAction("worker-checkout")}
+                  disabled={busy}
+                  className="mt-4 w-full rounded-[24px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(5,150,105,0.45)] disabled:opacity-50"
+                >
+                  {busy ? "⏳ Сақталуда..." : "🚪 ШЫҒУ"}
+                </motion.button>
+              </>
+            )}
+            {stage === "done" && (
+              <>
+                <div className="text-5xl">✅</div>
+                <p className={cx("mt-2 text-base font-black", isDark ? "text-white" : "text-[#07122b]")}>Бүгінгі жұмыс аяқталды</p>
+                <p className={cx("mt-2 text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                  Кіру: <b>{checkInTime}</b>  •  Шығу: <b>{checkOutTime}</b>
+                </p>
+                {todayRow?.earlyMinutes > 0 && (
+                  <p className="mt-1 text-xs font-bold text-amber-500">⚠️ {todayRow.earlyMinutes} минут ерте кету</p>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="mt-5">
+            <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+              📊 Осы ай ({month})
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <div className={cx("rounded-[18px] p-3 text-center", isDark ? "bg-white/5" : "bg-white shadow")}>
+                <p className={cx("text-2xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{counts.present}</p>
+                <p className={cx("text-[10px] font-bold uppercase", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Толық</p>
+              </div>
+              <div className={cx("rounded-[18px] p-3 text-center", isDark ? "bg-white/5" : "bg-white shadow")}>
+                <p className={cx("text-2xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{counts.half}</p>
+                <p className={cx("text-[10px] font-bold uppercase", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Жарты</p>
+              </div>
+              <div className={cx("rounded-[18px] p-3 text-center", isDark ? "bg-white/5" : "bg-white shadow")}>
+                <p className={cx("text-2xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{hours.totalHours}</p>
+                <p className={cx("text-[10px] font-bold uppercase", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Сағат</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+              💰 Менің авансым
+            </p>
+            <div className={cx("rounded-[18px] p-4", isDark ? "bg-white/5" : "bg-white shadow")}>
+              <p className={cx("text-2xl font-black", isDark ? "text-white" : "text-[#07122b]")}>
+                {advanceTotal.toLocaleString("kk-KZ")} ₸
+              </p>
+              <p className={cx("text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                {(data.ownAdvances || []).length} жазба
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+              📅 Менің табелім ({month})
+            </p>
+            <div className={cx("rounded-[18px] p-3", isDark ? "bg-white/5" : "bg-white shadow")}>
+              <div className="grid grid-cols-7 gap-1">
+                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                  const dayStr = String(day).padStart(2, "0");
+                  const status = monthDays[dayStr];
+                  const colors = {
+                    present: isDark ? "bg-emerald-500/30 text-emerald-300" : "bg-emerald-100 text-emerald-700",
+                    half: isDark ? "bg-amber-500/30 text-amber-300" : "bg-amber-100 text-amber-700",
+                    absent: isDark ? "bg-red-500/30 text-red-300" : "bg-red-100 text-red-700",
+                    dayoff: isDark ? "bg-blue-500/30 text-blue-300" : "bg-blue-100 text-blue-700",
+                  };
+                  return (
+                    <div
+                      key={day}
+                      className={cx(
+                        "aspect-square rounded-md text-center text-[10px] font-black grid place-items-center",
+                        status ? colors[status] : isDark ? "bg-white/5 text-slate-500" : "bg-[#f4f7fc] text-[#94a3b8]",
+                      )}
+                    >
+                      {day}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <AnimatePresence>
+          {messageOpen && message && (
+            <Modal isDark={isDark} title={message.type === "success" ? "✅ Сәтті" : "❌ Қате"} onClose={() => setMessageOpen(false)}>
+              <p className={cx("text-base font-bold", isDark ? "text-white" : "text-[#07122b]")}>{message.text}</p>
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setMessageOpen(false)}
+                className="mt-4 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
+              >
+                Жабу
+              </motion.button>
+            </Modal>
+          )}
+          {notifOpen && (
+            <Modal isDark={isDark} title="🔔 Хабарландырулар" onClose={() => setNotifOpen(false)}>
+              {broadcasts.length === 0 ? (
+                <p className={cx("rounded-[16px] p-4 text-center text-sm font-bold", isDark ? "bg-white/5 text-slate-400" : "bg-[#f4f7fc] text-[#7a86a0]")}>
+                  Әлі хабарландыру жоқ.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {broadcasts.map((b, i) => (
+                    <div key={i} className={cx("rounded-[16px] px-3 py-2.5", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
+                      <p className={cx("text-[10px] font-bold uppercase", isDark ? "text-slate-500" : "text-[#94a3b8]")}>
+                        {b.at ? new Date(b.at).toLocaleString("kk-KZ", { timeZone: "Asia/Tashkent", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                      </p>
+                      <p className={cx("mt-1 text-sm font-bold", isDark ? "text-white" : "text-[#07122b]")}>{b.text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Modal>
+          )}
+        </AnimatePresence>
+      </section>
+    </main>
   );
 }
 
