@@ -221,14 +221,18 @@ function App() {
         const tg = getTelegram();
         if (tg) {
           try { tg.ready(); } catch {}
-          // small delay so initDataUnsafe.user is populated reliably (esp. iOS)
-          await new Promise((r) => setTimeout(r, 50));
         }
-        const userId = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "";
+        // initData кейде бірден келмейді — 5 рет retry (~1 сек)
+        let userId = "";
+        for (let attempt = 0; attempt < 10; attempt++) {
+          userId = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "";
+          if (userId) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
         setTgUserId(userId);
         if (!userId) {
-          // No telegram user id — must open inside Telegram
-          setAccessState("unregistered");
+          // initData дайын болмады — Telegram-нан тыс ашылған шығар
+          setAccessState("no-telegram");
           setLoading(false);
           return;
         }
@@ -523,6 +527,29 @@ function App() {
     return (
       <main className={cx("flex min-h-screen items-center justify-center", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
         <Clock3 className="size-8 animate-spin opacity-50" />
+      </main>
+    );
+  }
+
+  if (accessState === "no-telegram") {
+    return (
+      <main className={cx("flex min-h-screen items-center justify-center px-6", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
+        <div className={cx("w-full max-w-sm rounded-3xl px-6 py-10 text-center shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
+          <div className="mb-4 text-5xl">📱</div>
+          <h1 className="text-xl font-black">Telegram арқылы ашыңыз</h1>
+          <p className={cx("mt-3 text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+            Mini App тек Telegram-да жұмыс істейді.
+            <br /><br />
+            @Ailyq_Esep_Bot ботында <b>"📱 Жұмысшы кабинетін ашу"</b> батырмасын басыңыз.
+          </p>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => window.location.reload()}
+            className="mt-5 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
+          >
+            🔄 Қайта тексеру
+          </motion.button>
+        </div>
       </main>
     );
   }
@@ -1477,6 +1504,10 @@ function RegistrationScreen({ isDark, userId, onSent }) {
 
   async function submit() {
     if (!name.trim() || sending) return;
+    if (!userId) {
+      setError("Telegram аутентификациясы жоқ. Mini App-ты қайта ашыңыз.");
+      return;
+    }
     haptic("medium");
     setSending(true);
     setError("");
