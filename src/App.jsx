@@ -1752,12 +1752,16 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
   return (
     <main className={cx("min-h-screen", isDark ? "bg-[#04060d]" : "bg-[#07101f]")}>
       <section className={cx("app-shell mx-auto flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden shadow-2xl md:my-5 md:min-h-[860px] md:rounded-[34px]", isDark ? "bg-[#0a1126]" : "bg-[#f5f7fb]")}>
-        <header className="relative overflow-hidden px-5 pb-5 pt-5 text-white">
-          <div className={cx("absolute inset-0 -z-10", isDark ? "bg-gradient-to-br from-[#0b1b5f] via-[#040816] to-[#01030a]" : "bg-gradient-to-br from-[#0b1b5f] via-[#0d2070] to-[#06104a]")} />
+        <header
+          className="relative overflow-hidden px-5 pb-5 pt-5 text-white"
+          style={{
+            background: "linear-gradient(135deg, #0b1b5f 0%, #0d2070 50%, #06104a 100%)",
+          }}
+        >
           <div className="relative flex items-center justify-between">
             <div className="flex flex-col">
               <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Жұмысшы кабинеті</span>
-              <span className="text-lg font-black">{employee.name}</span>
+              <span className="text-lg font-black text-white">{employee.name}</span>
               <span className="text-xs font-bold text-white/70">{employee.role || "Қызметкер"}</span>
             </div>
             <div className="flex items-center gap-2">
@@ -1786,13 +1790,13 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
           <div className="relative mt-5 flex items-center justify-between rounded-[22px] bg-white/12 px-4 py-3 backdrop-blur">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Уақыт</p>
-              <p className="text-xl font-black tabular-nums">
+              <p className="text-xl font-black tabular-nums text-white">
                 {now.toLocaleTimeString("kk-KZ", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </p>
             </div>
             <div className="text-right">
               <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Күні</p>
-              <p className="text-sm font-black">{data.today}</p>
+              <p className="text-sm font-black text-white">{data.today}</p>
             </div>
           </div>
         </header>
