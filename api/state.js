@@ -1,5 +1,12 @@
 import { appendAdvance, appendHistory, loadStore, publicState } from "./_lib/sheets.js";
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
 async function sendTelegramText(chatId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN жоқ");
@@ -33,6 +40,76 @@ export default async function handler(req, res) {
     if (req.method === "POST") {
       const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
       const reqAction = String(body.action || "").toLowerCase();
+
+      if (reqAction === "register-request") {
+        const telegramId = String(body.telegramId || "").trim();
+        const name = String(body.name || "").trim();
+        const role = String(body.role || "Қызметкер").trim();
+        const username = String(body.username || "").trim();
+        const firstName = String(body.firstName || "").trim();
+
+        if (!telegramId || !name) {
+          res.status(400).json({ error: "Telegram ID немесе аты-жөні бос" });
+          return;
+        }
+
+        const store = await loadStore();
+        const existing = store.employees.find(
+          (e) => String(e.telegramId || "").trim() === telegramId,
+        );
+        if (existing) {
+          res.status(400).json({ error: "Сіз бұрыннан тіркелгенсіз" });
+          return;
+        }
+
+        try {
+          await appendHistory([{
+            at: new Date().toISOString(),
+            action: "Тіркеу күтуде",
+            employeeId: telegramId,
+            name,
+            date: "",
+            oldLabel: role,
+            newLabel: username || firstName || "",
+          }]);
+        } catch {}
+
+        const adminIds = (process.env.ADMIN_TELEGRAM_IDS || "")
+          .split(",").map((s) => s.trim()).filter(Boolean);
+        const text = [
+          "📥 <b>Жаңа тіркеу сұранысы</b>",
+          "",
+          `<b>Аты-жөні:</b> ${escapeHtml(name)}`,
+          `<b>Рөлі:</b> ${escapeHtml(role)}`,
+          username ? `<b>Telegram:</b> @${escapeHtml(username)}` : `<b>Аты:</b> ${escapeHtml(firstName)}`,
+          `<b>ID:</b> <code>${escapeHtml(telegramId)}</code>`,
+        ].join("\n");
+        const keyboard = {
+          inline_keyboard: [[
+            { text: "✅ Растау", callback_data: `reg_approve:${telegramId}` },
+            { text: "❌ Бас тарту", callback_data: `reg_reject:${telegramId}` },
+          ]],
+        };
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+        if (token) {
+          for (const adminId of adminIds) {
+            try {
+              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: adminId,
+                  text,
+                  parse_mode: "HTML",
+                  reply_markup: keyboard,
+                }),
+              });
+            } catch {}
+          }
+        }
+        res.status(200).json({ ok: true });
+        return;
+      }
 
       if (reqAction === "broadcast") {
         const text = String(body.text || "").trim();

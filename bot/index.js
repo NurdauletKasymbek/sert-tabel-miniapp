@@ -1026,6 +1026,68 @@ async function notifyAdminsToBind(fromUser, state) {
   }
 }
 
+async function handleRegistrationCallback(callback, targetTgId, approve) {
+  const chatId = callback.message.chat.id;
+  const messageId = callback.message.message_id;
+
+  if (!approve) {
+    await answerCallback(callback.id, "Бас тартылды ❌");
+    try {
+      await editMessage(chatId, messageId, "❌ Тіркеу сұранысы бас тартылды.", { reply_markup: { inline_keyboard: [] } });
+    } catch {}
+    try {
+      await sendMessage(targetTgId, "❌ Тіркеу сұранысыңыз қабылданбады. Әкімшіге хабарласыңыз.");
+    } catch {}
+    return;
+  }
+
+  if (!MINI_APP_URL) {
+    await answerCallback(callback.id, "MINI_APP_URL орнатылмаған");
+    return;
+  }
+
+  // Pending name + role-ды Telegram message text-тен parse жасау
+  const text = callback.message.text || callback.message.caption || "";
+  const nameMatch = text.match(/Аты-жөні:\s*([^\n]+)/);
+  const roleMatch = text.match(/Рөлі:\s*([^\n]+)/);
+  const name = nameMatch?.[1]?.trim() || "";
+  const role = roleMatch?.[1]?.trim() || "Қызметкер";
+
+  if (!name) {
+    await answerCallback(callback.id, "Аты-жөні табылмады");
+    return;
+  }
+
+  try {
+    const empResp = await fetch(`${MINI_APP_URL}/api/employees`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, role, telegramId: targetTgId }),
+    });
+    const empData = await empResp.json().catch(() => ({}));
+    if (!empResp.ok) throw new Error(empData.error || `API қатесі: ${empResp.status}`);
+
+    await answerCallback(callback.id, "Растадыңыз ✅");
+    try {
+      await editMessage(chatId, messageId, `✅ <b>${escapeHtml(name)}</b> тіркелді (Telegram ID: <code>${escapeHtml(targetTgId)}</code>)`, { reply_markup: { inline_keyboard: [] } });
+    } catch {}
+
+    try {
+      await sendMessage(targetTgId, [
+        "✅ <b>Сіз тіркелдіңіз!</b>",
+        "",
+        `Аты-жөні: <b>${escapeHtml(name)}</b>`,
+        `Рөлі: <b>${escapeHtml(role)}</b>`,
+        "",
+        "Енді Mini App-ты <b>қайта ашып</b>, жұмысқа кіре аласыз.",
+      ].join("\n"), { reply_markup: workerKeyboard() });
+    } catch {}
+  } catch (error) {
+    await answerCallback(callback.id, "Қате");
+    await sendMessage(chatId, `Қате: ${error.message}`);
+  }
+}
+
 async function handleBindCallback(callback, employeeId, telegramId) {
   const chatId = callback.message.chat.id;
   const messageId = callback.message.message_id;
@@ -1389,6 +1451,17 @@ async function handleCallback(callback) {
     }
     const [, empId, tgId] = dataValue.split(":");
     await handleBindCallback(callback, empId, tgId);
+    return;
+  }
+
+  if (dataValue.startsWith("reg_approve:") || dataValue.startsWith("reg_reject:")) {
+    if (!isAdmin(userId)) {
+      await answerCallback(callback.id, "Рұқсат жоқ");
+      return;
+    }
+    const approve = dataValue.startsWith("reg_approve:");
+    const targetTgId = dataValue.split(":")[1];
+    await handleRegistrationCallback(callback, targetTgId, approve);
     return;
   }
 

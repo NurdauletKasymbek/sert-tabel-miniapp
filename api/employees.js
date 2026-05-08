@@ -22,6 +22,7 @@ export default async function handler(req, res) {
       createdAt: new Date().toISOString(),
       archivedAt: "",
       schedule,
+      telegramId: String(body.telegramId || "").trim(),
     };
     store.employees.push(employee);
     await saveEmployees(store.employees);

@@ -550,12 +550,24 @@ function App() {
 
   if (accessState === "unregistered") {
     return (
+      <RegistrationScreen
+        isDark={isDark}
+        userId={tgUserId}
+        onSent={() => setAccessState("pending")}
+      />
+    );
+  }
+
+  if (accessState === "pending") {
+    return (
       <main className={cx("flex min-h-screen items-center justify-center px-6", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
         <div className={cx("w-full max-w-sm rounded-3xl px-6 py-10 text-center shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
-          <div className="mb-4 text-5xl">🔒</div>
-          <h1 className="text-xl font-black">Сіз әлі тіркелмегенсіз</h1>
+          <div className="mb-4 text-5xl">⏳</div>
+          <h1 className="text-xl font-black">Сұраныс жіберілді</h1>
           <p className={cx("mt-3 text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
-            Жүйеге кіру үшін <b>әкімшіге</b> хабарласып, өзіңізді қызметкер ретінде тіркеттіріңіз.
+            Әкімші растағаннан кейін Telegram-ға хабарлама келеді.
+            <br /><br />
+            Содан соң Mini App-ты <b>қайтадан ашыңыз</b>.
           </p>
         </div>
       </main>
@@ -1454,6 +1466,86 @@ function StatsView({ isDark, state, month, onRefresh }) {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function RegistrationScreen({ isDark, userId, onSent }) {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (!name.trim() || sending) return;
+    haptic("medium");
+    setSending(true);
+    setError("");
+    try {
+      const tg = getTelegram();
+      const username = tg?.initDataUnsafe?.user?.username || "";
+      const firstName = tg?.initDataUnsafe?.user?.first_name || "";
+      await api("/api/state", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "register-request",
+          telegramId: userId,
+          name: name.trim(),
+          role: role.trim() || "Қызметкер",
+          username,
+          firstName,
+        }),
+      });
+      haptic("success");
+      onSent();
+    } catch (err) {
+      haptic("error");
+      setError(err.message || "Жіберілмеді");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <main className={cx("flex min-h-screen items-center justify-center px-6 py-10", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
+      <div className={cx("w-full max-w-sm rounded-3xl px-6 py-8 shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
+        <div className="mb-4 text-center text-5xl">📝</div>
+        <h1 className="text-center text-xl font-black">Тіркеуге сұраныс</h1>
+        <p className={cx("mt-2 text-center text-xs font-bold leading-relaxed", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+          Деректеріңізді енгізіп, әкімшіге сұраныс жіберіңіз
+        </p>
+
+        {error && <div className="mt-4"><InlineError text={error} /></div>}
+
+        <label className="mt-5 block">
+          <span className={cx("form-label", isDark && "form-label-dark")}>Аты-жөні</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Мысалы: Айбек Нұрлан"
+            className={cx("form-input", isDark && "form-input-dark")}
+          />
+        </label>
+
+        <label className="mt-3 block">
+          <span className={cx("form-label", isDark && "form-label-dark")}>Рөлі / бригадасы</span>
+          <input
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="Мысалы: Оператор"
+            className={cx("form-input", isDark && "form-input-dark")}
+          />
+        </label>
+
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={submit}
+          disabled={sending || !name.trim()}
+          className="mt-5 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50"
+        >
+          {sending ? "Жіберілуде..." : "📤 Сұраныс жіберу"}
+        </motion.button>
+      </div>
+    </main>
   );
 }
 
