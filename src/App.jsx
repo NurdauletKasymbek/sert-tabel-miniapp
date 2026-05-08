@@ -222,11 +222,27 @@ function App() {
         if (tg) {
           try { tg.ready(); } catch {}
         }
-        // initData кейде бірден келмейді — 5 рет retry (~1 сек)
+        // initData кейде бірден келмейді — 10 рет retry (~1 сек)
+        // initDataUnsafe + raw initData екеуінен де табуға тырысамыз
         let userId = "";
         for (let attempt = 0; attempt < 10; attempt++) {
+          // 1) initDataUnsafe.user.id (нормальная жол)
           userId = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "";
           if (userId) break;
+          // 2) raw initData parse (Telegram Desktop fallback)
+          if (tg?.initData) {
+            try {
+              const params = new URLSearchParams(tg.initData);
+              const userJson = params.get("user");
+              if (userJson) {
+                const user = JSON.parse(userJson);
+                if (user?.id) {
+                  userId = String(user.id);
+                  break;
+                }
+              }
+            } catch {}
+          }
           await new Promise((r) => setTimeout(r, 100));
         }
         setTgUserId(userId);
@@ -532,20 +548,31 @@ function App() {
   }
 
   if (accessState === "no-telegram") {
+    const tg = getTelegram();
+    const debugInfo = {
+      hasTg: Boolean(tg),
+      hasInitData: Boolean(tg?.initData),
+      initDataLength: tg?.initData?.length || 0,
+      hasUnsafeUser: Boolean(tg?.initDataUnsafe?.user),
+      version: tg?.version || "?",
+      platform: tg?.platform || "?",
+    };
     return (
       <main className={cx("flex min-h-screen items-center justify-center px-6", isDark ? "bg-[#04060d] text-white" : "bg-[#f5f7fb] text-[#07122b]")}>
-        <div className={cx("w-full max-w-sm rounded-3xl px-6 py-10 text-center shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
-          <div className="mb-4 text-5xl">📱</div>
-          <h1 className="text-xl font-black">Telegram арқылы ашыңыз</h1>
-          <p className={cx("mt-3 text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
-            Mini App тек Telegram-да жұмыс істейді.
-            <br /><br />
-            @Ailyq_Esep_Bot ботында <b>"📱 Жұмысшы кабинетін ашу"</b> батырмасын басыңыз.
+        <div className={cx("w-full max-w-sm rounded-3xl px-6 py-8 shadow-xl", isDark ? "bg-[#0a1126]" : "bg-white")}>
+          <div className="mb-4 text-center text-5xl">📱</div>
+          <h1 className="text-center text-xl font-black">Telegram арқылы ашыңыз</h1>
+          <p className={cx("mt-3 text-center text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+            Mini App-ты <b>Telegram мобильді қолданбасында</b> ашыңыз (Desktop кейде дұрыс жұмыс істемейді).
           </p>
+          <details className={cx("mt-4 rounded-xl px-3 py-2 text-[10px] font-mono", isDark ? "bg-white/5 text-slate-400" : "bg-[#f4f7fc] text-[#7a86a0]")}>
+            <summary className="cursor-pointer font-bold">Debug</summary>
+            <pre className="mt-2 whitespace-pre-wrap break-all">{JSON.stringify(debugInfo, null, 2)}</pre>
+          </details>
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={() => window.location.reload()}
-            className="mt-5 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
+            className="mt-4 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white"
           >
             🔄 Қайта тексеру
           </motion.button>
