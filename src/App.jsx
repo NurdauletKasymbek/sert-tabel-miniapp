@@ -1829,14 +1829,61 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
                 {todayRow?.lateMinutes > 0 && (
                   <p className="mt-1 text-xs font-bold text-amber-500">⚠️ {todayRow.lateMinutes} минут кешіктіру</p>
                 )}
-                <motion.button
-                  whileTap={{ scale: 0.96 }}
-                  onClick={() => { haptic("light"); setConfirmCheckoutOpen(true); }}
-                  disabled={busy}
-                  className="mt-4 w-full rounded-[24px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(5,150,105,0.45)] disabled:opacity-50"
-                >
-                  {busy ? "⏳ Сақталуда..." : "🚪 ШЫҒУ"}
-                </motion.button>
+                {!confirmCheckoutOpen ? (
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    onClick={() => { haptic("light"); setConfirmCheckoutOpen(true); }}
+                    disabled={busy}
+                    className="mt-4 w-full rounded-[24px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(5,150,105,0.45)] disabled:opacity-50"
+                  >
+                    {busy ? "⏳ Сақталуда..." : "🚪 ШЫҒУ"}
+                  </motion.button>
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="mt-4 space-y-3"
+                  >
+                    {minutesUntilEnd > 0 ? (
+                      <div className={cx("rounded-[16px] border-2 px-3 py-3 text-left", isDark ? "border-amber-500/30 bg-amber-500/10" : "border-amber-300 bg-amber-50")}>
+                        <p className={cx("text-sm font-black", isDark ? "text-amber-300" : "text-amber-900")}>
+                          ⚠️ Жұмыс уақыты әлі бітпеді
+                        </p>
+                        <p className={cx("mt-1 text-xs font-bold", isDark ? "text-amber-200/80" : "text-amber-800")}>
+                          18:00-ге дейін <b>{minutesUntilEnd} минут</b> қалды.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className={cx("text-sm font-bold", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+                        Жұмыс уақыты аяқталды.
+                      </p>
+                    )}
+                    <p className={cx("text-sm font-bold", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+                      Шынымен шығасыз ба?
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => { haptic("light"); setConfirmCheckoutOpen(false); }}
+                        disabled={busy}
+                        className={cx("rounded-[18px] px-4 py-4 text-sm font-black", isDark ? "bg-white/10 text-white" : "bg-[#f4f7fc] text-[#07122b]")}
+                      >
+                        ❌ Болдырмау
+                      </motion.button>
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={async () => {
+                          setConfirmCheckoutOpen(false);
+                          await performAction("worker-checkout");
+                        }}
+                        disabled={busy}
+                        className="rounded-[18px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-4 text-sm font-black text-white disabled:opacity-50"
+                      >
+                        {busy ? "⏳..." : "✅ Иә, шығу"}
+                      </motion.button>
+                    </div>
+                  </motion.div>
+                )}
               </>
             )}
             {stage === "done" && (
@@ -1920,46 +1967,6 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
         </section>
 
         <AnimatePresence>
-          {confirmCheckoutOpen && (
-            <Modal isDark={isDark} title="🚪 Шығу растау" onClose={() => setConfirmCheckoutOpen(false)}>
-              {minutesUntilEnd > 0 ? (
-                <div className={cx("rounded-[16px] border-2 px-3 py-3", isDark ? "border-amber-500/30 bg-amber-500/10" : "border-amber-300 bg-amber-50")}>
-                  <p className={cx("text-sm font-black", isDark ? "text-amber-300" : "text-amber-900")}>
-                    ⚠️ Жұмыс уақыты әлі бітпеді
-                  </p>
-                  <p className={cx("mt-1 text-xs font-bold", isDark ? "text-amber-200/80" : "text-amber-800")}>
-                    Жұмыс аяқталуына <b>{minutesUntilEnd} минут</b> қалды (18:00).
-                  </p>
-                </div>
-              ) : (
-                <p className={cx("text-sm font-bold", isDark ? "text-slate-300" : "text-[#5b6680]")}>
-                  Жұмыс уақыты аяқталды. Шығу белгілейміз бе?
-                </p>
-              )}
-              <p className={cx("mt-3 text-sm font-bold", isDark ? "text-slate-300" : "text-[#5b6680]")}>
-                Шынымен шығасыз ба? Бұл әрекет Sheets-ке жазылады.
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => setConfirmCheckoutOpen(false)}
-                  className={cx("rounded-[18px] px-4 py-3 text-sm font-black", isDark ? "bg-white/10 text-white" : "bg-[#f4f7fc] text-[#07122b]")}
-                >
-                  ❌ Болдырмау
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={async () => {
-                    setConfirmCheckoutOpen(false);
-                    await performAction("worker-checkout");
-                  }}
-                  className="rounded-[18px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-3 text-sm font-black text-white"
-                >
-                  ✅ Иә, шығамын
-                </motion.button>
-              </div>
-            </Modal>
-          )}
           {messageOpen && message && (
             <Modal isDark={isDark} title={message.type === "success" ? "✅ Сәтті" : "❌ Қате"} onClose={() => setMessageOpen(false)}>
               <p className={cx("text-base font-bold", isDark ? "text-white" : "text-[#07122b]")}>{message.text}</p>
