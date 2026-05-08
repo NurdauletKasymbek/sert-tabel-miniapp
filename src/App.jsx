@@ -185,6 +185,7 @@ function App() {
   const [qrEmployee, setQrEmployee] = useState(null);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [manualCheckoutOpen, setManualCheckoutOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [accessState, setAccessState] = useState("checking");
   const [workerData, setWorkerData] = useState(null);
@@ -430,6 +431,31 @@ function App() {
       setState(next);
       haptic("success");
       showToast("success", `${selected.name}: ${statusMeta[status].label} сақталды.`);
+    } catch (err) {
+      haptic("error");
+      showToast("error", err.message);
+    } finally {
+      setPendingStatus(false);
+    }
+  }
+
+  async function manualCheckout(time) {
+    if (!selected || pendingStatus) return;
+    haptic("medium");
+    try {
+      setPendingStatus(true);
+      const next = await api("/api/attendance", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "checkout",
+          date: selectedDate,
+          employeeId: selected.id,
+          checkOutTime: time,
+        }),
+      });
+      setState(next);
+      haptic("success");
+      showToast("success", `${selected.name}: шығу ${time} белгіленді`);
     } catch (err) {
       haptic("error");
       showToast("error", err.message);
@@ -940,6 +966,14 @@ function App() {
                 {syncState === "syncing" ? <Clock3 className="size-5 animate-spin" /> : syncState === "done" ? <Check className="size-5" /> : <FileSpreadsheet className="size-5" />}
               </motion.button>
             </div>
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => { haptic("light"); setManualCheckoutOpen(true); }}
+              disabled={pendingStatus}
+              className={cx("mt-2 flex w-full items-center justify-center gap-2 rounded-[20px] px-4 py-3 text-sm font-black ring-1 disabled:opacity-50", isDark ? "bg-white/5 text-emerald-300 ring-emerald-400/30" : "bg-emerald-50 text-emerald-700 ring-emerald-200")}
+            >
+              🚪 Қолмен шығу қою
+            </motion.button>
             <motion.button whileTap={{ scale: 0.97 }} onClick={sendManagerReport} disabled={reportState === "sending"} className="mt-2 flex w-full items-center justify-center gap-2 rounded-[20px] bg-gradient-to-br from-[#112b88] to-[#07133a] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-60">
               {reportState === "sending" ? <Clock3 className="size-5 animate-spin" /> : reportState === "sent" ? <Check className="size-5" /> : <Sparkles className="size-5" />}
               Басшылыққа есеп беру
@@ -965,6 +999,20 @@ function App() {
             <motion.button whileTap={{ scale: 0.97 }} onClick={addEmployee} disabled={!newName.trim() || savingEmployee} className="mt-4 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50">
               {savingEmployee ? "Сақталып жатыр..." : "Қосу және сақтау"}
             </motion.button>
+          </Modal>
+        )}
+
+        {manualCheckoutOpen && selected && (
+          <Modal isDark={isDark} title={`🚪 ${selected.name} — шығу`} onClose={() => setManualCheckoutOpen(false)}>
+            <ManualCheckoutForm
+              isDark={isDark}
+              employeeName={selected.name}
+              date={selectedDate}
+              onSubmit={async (time) => {
+                await manualCheckout(time);
+                setManualCheckoutOpen(false);
+              }}
+            />
           </Modal>
         )}
 
@@ -1621,6 +1669,19 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
   const [message, setMessage] = useState(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
+
+  const minutesUntilEnd = useMemo(() => {
+    const formatted = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Tashkent",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(now);
+    const [h, m] = formatted.split(":").map(Number);
+    const total = (h || 0) * 60 + (m || 0);
+    return Math.max(0, 18 * 60 - total);
+  }, [now]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -1766,7 +1827,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
                 )}
                 <motion.button
                   whileTap={{ scale: 0.96 }}
-                  onClick={() => performAction("worker-checkout")}
+                  onClick={() => { haptic("light"); setConfirmCheckoutOpen(true); }}
                   disabled={busy}
                   className="mt-4 w-full rounded-[24px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(5,150,105,0.45)] disabled:opacity-50"
                 >
@@ -1855,6 +1916,46 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
         </section>
 
         <AnimatePresence>
+          {confirmCheckoutOpen && (
+            <Modal isDark={isDark} title="🚪 Шығу растау" onClose={() => setConfirmCheckoutOpen(false)}>
+              {minutesUntilEnd > 0 ? (
+                <div className={cx("rounded-[16px] border-2 px-3 py-3", isDark ? "border-amber-500/30 bg-amber-500/10" : "border-amber-300 bg-amber-50")}>
+                  <p className={cx("text-sm font-black", isDark ? "text-amber-300" : "text-amber-900")}>
+                    ⚠️ Жұмыс уақыты әлі бітпеді
+                  </p>
+                  <p className={cx("mt-1 text-xs font-bold", isDark ? "text-amber-200/80" : "text-amber-800")}>
+                    Жұмыс аяқталуына <b>{minutesUntilEnd} минут</b> қалды (18:00).
+                  </p>
+                </div>
+              ) : (
+                <p className={cx("text-sm font-bold", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+                  Жұмыс уақыты аяқталды. Шығу белгілейміз бе?
+                </p>
+              )}
+              <p className={cx("mt-3 text-sm font-bold", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+                Шынымен шығасыз ба? Бұл әрекет Sheets-ке жазылады.
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setConfirmCheckoutOpen(false)}
+                  className={cx("rounded-[18px] px-4 py-3 text-sm font-black", isDark ? "bg-white/10 text-white" : "bg-[#f4f7fc] text-[#07122b]")}
+                >
+                  ❌ Болдырмау
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={async () => {
+                    setConfirmCheckoutOpen(false);
+                    await performAction("worker-checkout");
+                  }}
+                  className="rounded-[18px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-3 text-sm font-black text-white"
+                >
+                  ✅ Иә, шығамын
+                </motion.button>
+              </div>
+            </Modal>
+          )}
           {messageOpen && message && (
             <Modal isDark={isDark} title={message.type === "success" ? "✅ Сәтті" : "❌ Қате"} onClose={() => setMessageOpen(false)}>
               <p className={cx("text-base font-bold", isDark ? "text-white" : "text-[#07122b]")}>{message.text}</p>
@@ -1890,6 +1991,59 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
         </AnimatePresence>
       </section>
     </main>
+  );
+}
+
+function ManualCheckoutForm({ isDark, employeeName, date, onSubmit }) {
+  const defaultTime = useMemo(() => {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Tashkent",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date());
+  }, []);
+  const [time, setTime] = useState(defaultTime);
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!time || saving) return;
+    haptic("medium");
+    setSaving(true);
+    try {
+      await onSubmit(time);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className={cx("text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+        Қызметкер QR баспай кетіп қалса, шығу уақытын қолмен қойыңыз. Кіру белгісі болуы шарт.
+      </p>
+      <div className={cx("rounded-[16px] px-3 py-2.5 text-xs font-bold", isDark ? "bg-white/5 text-slate-300" : "bg-[#f4f7fc] text-[#5b6680]")}>
+        <p>Қызметкер: <b>{employeeName}</b></p>
+        <p>Күні: <b>{date}</b></p>
+      </div>
+      <label className="block">
+        <span className={cx("form-label", isDark && "form-label-dark")}>Шығу уақыты</span>
+        <input
+          type="time"
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          className={cx("form-input", isDark && "form-input-dark")}
+        />
+      </label>
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={submit}
+        disabled={saving || !time}
+        className="w-full rounded-[20px] bg-emerald-600 px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(5,150,105,0.24)] disabled:opacity-50"
+      >
+        {saving ? "Сақталуда..." : "🚪 Шығу қою"}
+      </motion.button>
+    </div>
   );
 }
 

@@ -217,7 +217,11 @@ export default async function handler(req, res) {
         return;
       }
       const checkOutTime = String(body.checkOutTime || "");
-      const earlyMinutes = Number(body.earlyMinutes) || 0;
+      let earlyMinutes = Number(body.earlyMinutes);
+      if (!Number.isFinite(earlyMinutes)) {
+        const total = timeToMinutes(checkOutTime);
+        earlyMinutes = total > 0 && total < WORK_END_HOUR * 60 ? WORK_END_HOUR * 60 - total : 0;
+      }
       const existing = [...store.attendance].reverse().find((row) => row.date === date && row.employeeId === employeeId);
       if (!existing) {
         res.status(400).json({ error: "Бүгінгі кіру белгісі табылмады" });
