@@ -732,14 +732,8 @@ const WORK_START_HOUR = 9;
 const WORK_END_HOUR = 18;
 
 function workerKeyboard() {
-  if (MINI_APP_URL) {
-    return {
-      keyboard: [
-        [{ text: "📱 Жұмысшы кабинетін ашу", web_app: { url: MINI_APP_URL } }],
-      ],
-      resize_keyboard: true,
-    };
-  }
+  // Reply keyboard web_app initData жібермейді — қолданушылар жоғарыдағы
+  // BotFather Menu Button (📱 Табель ашу) арқылы ашуы керек.
   return { remove_keyboard: true };
 }
 
@@ -810,8 +804,8 @@ async function handleMessage(message) {
     await sendMessage(chatId, [
       "❌ <b>Мұндай жолмен кіру қабылданбайды.</b>",
       "",
-      "Жұмысқа кіру/шығу тек <b>Жұмысшы кабинеті</b> арқылы:",
-      "↓ Төмендегі батырманы басыңыз",
+      "Жұмысқа кіру/шығу тек <b>Mini App</b> арқылы:",
+      "↑ Жоғарыдағы <b>📱 Табель ашу</b> батырмасын басыңыз",
     ].join("\n"), { reply_markup: workerKeyboard() });
     return;
   }
@@ -823,7 +817,7 @@ async function handleMessage(message) {
     text === "💰 Аванс" ||
     text === "🚪 Шығып жатырмын"
   ) {
-    await sendMessage(chatId, "Енді барлық әрекеттер <b>Жұмысшы кабинетінде</b>. Төмендегі батырманы басыңыз ↓", { reply_markup: workerKeyboard() });
+    await sendMessage(chatId, "Енді барлық әрекеттер <b>Mini App</b>-та. ↑ Жоғарыдағы <b>📱 Табель ашу</b> батырмасын басыңыз", { reply_markup: workerKeyboard() });
     return;
   }
 
@@ -920,9 +914,10 @@ async function sendWorkerWelcome(chatId, fromUser) {
   await sendMessage(chatId, [
     greeting,
     "",
-    "Жұмысқа кіру, шығу, табельіңді көру — бәрі <b>Жұмысшы кабинетінде</b>.",
+    "Жұмысқа кіру, шығу, табельіңді көру — бәрі <b>Mini App</b>-та.",
     "",
-    "↓ Төмендегі батырмасын басыңыз",
+    "↑ Жоғарыдағы <b>📱 Табель ашу</b> батырмасын басыңыз",
+    "(хабарлама жолының сол жағында)",
   ].join("\n"), { reply_markup: workerKeyboard() });
 }
 
