@@ -3,6 +3,10 @@
     {
       "path": "/api/scheduled-notifications",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/scheduled-notifications?mode=checkout-reminder",
+      "schedule": "55 12 * * *"
     }
   ]
 }

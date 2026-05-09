@@ -76,14 +76,22 @@ export default async function handler(req, res) {
       const wLat = Number(process.env.WORKPLACE_LAT);
       const wLon = Number(process.env.WORKPLACE_LON);
       const wRadius = Number(process.env.WORKPLACE_RADIUS_M || "10");
+      let outsideDistance = 0;
       if (Number.isFinite(wLat) && Number.isFinite(wLon)) {
         const dist = distanceMeters(wLat, wLon, lat, lon);
+        outsideDistance = Math.round(dist);
         if (dist > wRadius) {
-          res.status(400).json({
-            error: `❌ Жұмыс орнында емессіз (${Math.round(dist)}м). Рұқсат: ${wRadius}м.`,
-            distance: Math.round(dist),
-          });
-          return;
+          // Кіру: блоктаймыз. Шығу: жалғастырамыз — қызметкер жұмыс
+          // бабымен сыртта болуы мүмкін (admin-ге уведомление кейінде).
+          if (action === "worker-checkin") {
+            res.status(400).json({
+              error: `❌ Жұмыс орнында емессіз (${Math.round(dist)}м). Рұқсат: ${wRadius}м.`,
+              distance: Math.round(dist),
+            });
+            return;
+          }
+        } else {
+          outsideDistance = 0;
         }
       }
 
@@ -190,10 +198,18 @@ export default async function handler(req, res) {
       }]);
       await rebuildSummary({ ...store });
 
-      const adminMsg = earlyMin > 0
-        ? `⚠️ <b>${wEmployee.name}</b> жұмыстан ${earlyMin} минут ерте кетті (${now})`
-        : `✅ <b>${wEmployee.name}</b> жұмыс күнін аяқтады (${now})`;
-      notifyAdmins(adminMsg).catch(() => {});
+      const parts = [];
+      if (outsideDistance > 0) {
+        parts.push(`🚙 <b>${wEmployee.name}</b> сыртта шықты (~${outsideDistance}м)`);
+      } else {
+        parts.push(`✅ <b>${wEmployee.name}</b>`);
+      }
+      if (earlyMin > 0) {
+        parts.push(`⚠️ Жұмыстан ${earlyMin} минут ерте (${now})`);
+      } else {
+        parts.push(`Жұмыс күнін аяқтады (${now})`);
+      }
+      notifyAdmins(parts.join("\n")).catch(() => {});
 
       res.status(200).json({
         ok: true,

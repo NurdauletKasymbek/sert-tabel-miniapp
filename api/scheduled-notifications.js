@@ -58,6 +58,35 @@ async function sendDaily() {
   return { type: "daily", sentTo: ids.length, date: report.date, counts: report.counts };
 }
 
+async function sendCheckoutReminder() {
+  const store = await loadStore();
+  const today = todayDate();
+  const candidates = (store.employees || []).filter((e) => {
+    if (e.status === "archived") return false;
+    if (!String(e.telegramId || "").trim()) return false;
+    const todayRow = [...store.attendance].reverse().find(
+      (row) => row.date === today && row.employeeId === e.id,
+    );
+    return todayRow?.checkInTime && !todayRow?.checkOutTime;
+  });
+  if (!candidates.length) {
+    return { type: "checkout-reminder", skipped: "no_candidates", date: today };
+  }
+  const text = [
+    "🔔 <b>Шығу басуды ұмытпаңыз!</b>",
+    "",
+    "Жұмыс уақыты аяқталуға жақын. Mini App-та шығу белгілеуді ұмытпаңыз.",
+  ].join("\n");
+  let sent = 0;
+  for (const emp of candidates) {
+    try {
+      await sendTelegramMessage(emp.telegramId, text);
+      sent += 1;
+    } catch {}
+  }
+  return { type: "checkout-reminder", sentTo: sent, total: candidates.length, date: today };
+}
+
 async function sendMonthly() {
   const date = todayDate();
   if (!isLastDay(date)) return { type: "monthly", skipped: "not_last_day", date };
@@ -81,7 +110,8 @@ export default async function handler(req, res) {
     const mode = String(req.query?.mode || "");
     const time = localHourMinute();
     let result;
-    if (mode === "reminder" || (!mode && time === "18:00")) result = await sendReminder();
+    if (mode === "checkout-reminder" || (!mode && time === "17:55")) result = await sendCheckoutReminder();
+    else if (mode === "reminder" || (!mode && time === "18:00")) result = await sendReminder();
     else if (mode === "daily" || (!mode && time === "19:00")) result = await sendDaily();
     else if (mode === "monthly" || (!mode && time === "09:00")) result = await sendMonthly();
     else result = { skipped: "no_action_for_time", time };
