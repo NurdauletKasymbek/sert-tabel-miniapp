@@ -190,6 +190,8 @@ function App() {
   const [accessState, setAccessState] = useState("checking");
   const [workerData, setWorkerData] = useState(null);
   const [tgUserId, setTgUserId] = useState("");
+  const [tgPhotoUrl, setTgPhotoUrl] = useState("");
+  const [tgFirstName, setTgFirstName] = useState("");
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -247,6 +249,16 @@ function App() {
           await new Promise((r) => setTimeout(r, 100));
         }
         setTgUserId(userId);
+        const userInfo = tg?.initDataUnsafe?.user || (() => {
+          if (!tg?.initData) return null;
+          try {
+            const params = new URLSearchParams(tg.initData);
+            const userJson = params.get("user");
+            return userJson ? JSON.parse(userJson) : null;
+          } catch { return null; }
+        })();
+        setTgPhotoUrl(userInfo?.photo_url || "");
+        setTgFirstName(userInfo?.first_name || "");
         if (!userId) {
           // initData дайын болмады — Telegram-нан тыс ашылған шығар
           setAccessState("no-telegram");
@@ -662,6 +674,7 @@ function App() {
         setTheme={setTheme}
         data={workerData}
         userId={tgUserId}
+        photoUrl={tgPhotoUrl}
         onRefresh={refreshWorker}
       />
     );
@@ -677,9 +690,7 @@ function App() {
           <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(135deg,rgba(255,255,255,.22)_1px,transparent_1px),linear-gradient(45deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:22px_22px]" />
 
           <div className="relative flex items-center justify-between">
-            <motion.button whileTap={{ scale: 0.92 }} className="glass-icon text-white" aria-label="Артқа">
-              <ArrowLeft className="size-5" />
-            </motion.button>
+            <Avatar photoUrl={tgPhotoUrl} name={tgFirstName || "Әкімші"} size={42} />
             <LiveClock now={now} />
             <div className="flex items-center gap-2">
               <motion.button
@@ -1243,6 +1254,47 @@ function FilterChip({ isDark, active, children, onClick }) {
   );
 }
 
+function Avatar({ photoUrl, name, size = 48 }) {
+  const initials = String(name || "?")
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "?";
+  const colorIndex = Math.abs([...String(name || "")].reduce((acc, ch) => acc + ch.charCodeAt(0), 0)) % 5;
+  const gradients = [
+    "from-amber-400 to-pink-500",
+    "from-emerald-400 to-cyan-500",
+    "from-violet-500 to-fuchsia-500",
+    "from-sky-400 to-indigo-500",
+    "from-rose-400 to-orange-500",
+  ];
+  const sizeStyle = { width: size, height: size };
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={initials}
+        style={sizeStyle}
+        className="shrink-0 rounded-full object-cover ring-2 ring-white/20"
+      />
+    );
+  }
+  return (
+    <div
+      style={sizeStyle}
+      className={cx(
+        "shrink-0 rounded-full bg-gradient-to-br grid place-items-center font-black text-white ring-2 ring-white/20",
+        gradients[colorIndex],
+      )}
+    >
+      <span style={{ fontSize: Math.round(size * 0.38) }}>{initials}</span>
+    </div>
+  );
+}
+
 function Modal({ isDark, title, children, onClose }) {
   return (
     <motion.div
@@ -1655,7 +1707,7 @@ function RegistrationScreen({ isDark, userId, onSent }) {
   );
 }
 
-function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
+function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh }) {
   const employee = data.employee;
   const todayRow = data.todayRow;
   const counts = data.counts || { present: 0, half: 0, absent: 0, dayoff: 0 };
@@ -1794,10 +1846,13 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
           }}
         >
           <div className="relative flex items-center justify-between">
-            <div className="flex flex-col">
-              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Жұмысшы кабинеті</span>
-              <span className="text-lg font-black text-white">{employee.name}</span>
-              <span className="text-xs font-bold text-white/70">{employee.role || "Қызметкер"}</span>
+            <div className="flex items-center gap-3">
+              <Avatar photoUrl={photoUrl} name={employee.name} size={48} />
+              <div className="flex flex-col">
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">Жұмысшы кабинеті</span>
+                <span className="text-lg font-black text-white">{employee.name}</span>
+                <span className="text-xs font-bold text-white/70">{employee.role || "Қызметкер"}</span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <motion.button
