@@ -1670,6 +1670,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
   const [messageOpen, setMessageOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
+  const [actionError, setActionError] = useState(null);
 
   const minutesUntilEnd = useMemo(() => {
     const formatted = new Intl.DateTimeFormat("en-US", {
@@ -1697,16 +1698,23 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
     haptic("medium");
     setBusy(true);
     setMessage(null);
+    setActionError(null);
 
     try {
       const coords = await new Promise((resolve, reject) => {
         if (!navigator.geolocation) {
-          reject(new Error("Браузер геолокацияны қолдамайды"));
+          const e = new Error("Браузер геолокацияны қолдамайды");
+          e.geoCode = -1;
+          reject(e);
           return;
         }
         navigator.geolocation.getCurrentPosition(
           (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-          (err) => reject(new Error(err.message || "Геолокация алынбады. Қондырғыда GPS қосылғанын тексеріңіз.")),
+          (err) => {
+            const e = new Error(err.message || "Геолокация алынбады");
+            e.geoCode = err.code;
+            reject(e);
+          },
           { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
         );
       });
@@ -1727,8 +1735,35 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
       await onRefresh();
     } catch (err) {
       haptic("error");
-      setMessage({ type: "error", text: err.message || "Қате" });
-      setMessageOpen(true);
+      let title = "❌ Қате";
+      let body = err.message || "Қате болды";
+      let hint = "";
+
+      if (err.geoCode === 1) {
+        title = "🔒 Геолокация рұқсаты жабық";
+        body = "Mini App-қа орналасуыңызды қолдану үшін рұқсат беріңіз.";
+        hint = "Telegram → Settings → Privacy → Location";
+      } else if (err.geoCode === 2) {
+        title = "📡 GPS табылмады";
+        body = "GPS қосулы екенін тексеріңіз. Ашық жерге шығып қайталаңыз.";
+      } else if (err.geoCode === 3) {
+        title = "⏱️ Уақыт бітті";
+        body = "GPS жүктелмеді. Қайталап басыңыз.";
+      } else if (err.geoCode === -1) {
+        title = "🚫 Геолокация қолжетімсіз";
+        body = err.message;
+        hint = "Қондырғы параметрлерінде Telegram-ға орналасу рұқсатын беріңіз.";
+      } else if (body.includes("Жұмыс орнында емессіз")) {
+        title = "📍 Жұмыс орнында емессіз";
+        body = err.message;
+        hint = "Жұмыс орнына жақын барып қайтадан басыңыз.";
+      } else if (body.includes("тіркелмеген")) {
+        title = "🔒 Тіркелмегенсіз";
+      } else if (body.includes("Бүгін кіру")) {
+        title = "ℹ️ Хабарлама";
+      }
+
+      setActionError({ title, body, hint });
     } finally {
       setBusy(false);
     }
@@ -1803,7 +1838,10 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
 
         <section className="flex-1 px-4 py-5">
           <div className={cx("rounded-[26px] p-5 text-center shadow-xl", isDark ? "bg-white/5" : "bg-white")}>
-            {stage === "idle" && (
+            {stage === "idle" && actionError && (
+              <ActionErrorPanel isDark={isDark} error={actionError} onRetry={() => setActionError(null)} />
+            )}
+            {stage === "idle" && !actionError && (
               <>
                 <p className={cx("text-xs font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
                   Бүгін кіру белгісі әлі жоқ
@@ -1829,7 +1867,9 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
                 {todayRow?.lateMinutes > 0 && (
                   <p className="mt-1 text-xs font-bold text-amber-500">⚠️ {todayRow.lateMinutes} минут кешіктіру</p>
                 )}
-                {!confirmCheckoutOpen ? (
+                {actionError ? (
+                  <ActionErrorPanel isDark={isDark} error={actionError} onRetry={() => setActionError(null)} />
+                ) : !confirmCheckoutOpen ? (
                   <motion.button
                     whileTap={{ scale: 0.96 }}
                     onClick={() => { haptic("light"); setConfirmCheckoutOpen(true); }}
@@ -2002,6 +2042,37 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, onRefresh }) {
         </AnimatePresence>
       </section>
     </main>
+  );
+}
+
+function ActionErrorPanel({ isDark, error, onRetry }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="mt-4 space-y-3"
+    >
+      <div className={cx("rounded-[16px] border-2 px-3 py-3 text-left", isDark ? "border-red-500/40 bg-red-500/10" : "border-red-300 bg-red-50")}>
+        <p className={cx("text-sm font-black", isDark ? "text-red-300" : "text-red-900")}>
+          {error.title}
+        </p>
+        <p className={cx("mt-1 text-xs font-bold leading-relaxed", isDark ? "text-red-200/80" : "text-red-800")}>
+          {error.body}
+        </p>
+        {error.hint && (
+          <p className={cx("mt-2 text-xs font-bold leading-relaxed", isDark ? "text-amber-300" : "text-amber-800")}>
+            💡 {error.hint}
+          </p>
+        )}
+      </div>
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={() => { haptic("light"); onRetry(); }}
+        className="w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)]"
+      >
+        🔄 Қайталау
+      </motion.button>
+    </motion.div>
   );
 }
 
