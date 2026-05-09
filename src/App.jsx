@@ -728,7 +728,7 @@ function App() {
               aria-label="Хабарландыру жіберу"
             >
               <Megaphone className="size-4 text-white/76" />
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/52">Хабарландыру</p>
+              <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/52">Хабарлама</p>
               <p className="text-lg font-black">Жіберу</p>
             </motion.button>
           </div>
