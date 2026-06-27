@@ -183,6 +183,7 @@ function App() {
   const [theme, setTheme] = useState("light");
   const [pendingStatus, setPendingStatus] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [isMonitor, setIsMonitor] = useState(false);
   const [qrEmployee, setQrEmployee] = useState(null);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -268,6 +269,7 @@ function App() {
         }
         const me = await api(`/api/me?full=1&userId=${encodeURIComponent(userId)}`);
         if (me.isAdmin) {
+          setIsMonitor(me.role === "monitor");
           setAccessState("admin");
           loadState();
         } else if (me.employee) {
@@ -787,16 +789,18 @@ function App() {
             </motion.button>
           </div>
 
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={downloadMonthlyPdf}
-            disabled={pdfSending}
-            className="relative mt-3 flex w-full items-center justify-center gap-2 rounded-[18px] border border-white/18 bg-white/12 px-4 py-3 text-sm font-black text-white backdrop-blur transition active:bg-white/20 disabled:opacity-50"
-            aria-label="Айлық жалақы PDF"
-          >
-            <FileDown className={cx("size-4", pdfSending && "animate-pulse")} />
-            {pdfSending ? "Жіберілуде..." : "Айлық жалақы PDF"}
-          </motion.button>
+          {!isMonitor && (
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={downloadMonthlyPdf}
+              disabled={pdfSending}
+              className="relative mt-3 flex w-full items-center justify-center gap-2 rounded-[18px] border border-white/18 bg-white/12 px-4 py-3 text-sm font-black text-white backdrop-blur transition active:bg-white/20 disabled:opacity-50"
+              aria-label="Айлық жалақы PDF"
+            >
+              <FileDown className={cx("size-4", pdfSending && "animate-pulse")} />
+              {pdfSending ? "Жіберілуде..." : "Айлық жалақы PDF"}
+            </motion.button>
+          )}
         </header>
 
         <section className="grid flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_auto_1fr_auto] gap-4 px-4 py-4">
@@ -941,12 +945,14 @@ function App() {
                     ))}
                   </div>
 
-                  <SalaryEditor
-                    isDark={isDark}
-                    key={`salary-${selected.id}`}
-                    value={selected.monthlySalary || 0}
-                    onSave={(amount) => saveSalary(selected.id, amount)}
-                  />
+                  {!isMonitor && (
+                    <SalaryEditor
+                      isDark={isDark}
+                      key={`salary-${selected.id}`}
+                      value={selected.monthlySalary || 0}
+                      onSave={(amount) => saveSalary(selected.id, amount)}
+                    />
+                  )}
 
                   <div className={cx("mt-4 flex items-center justify-between rounded-[22px] px-3 py-2", isDark ? "bg-white/5" : "bg-[#f1f5fb]")}>
                     <motion.button whileTap={{ scale: 0.9 }} onClick={() => { haptic("selection"); setMonth(addMonths(month, -1)); }} className={cx("nav-round", isDark && "nav-round-dark")} aria-label="Алдыңғы ай">
@@ -1128,7 +1134,7 @@ function App() {
 
         {statsOpen && (
           <Modal isDark={isDark} title="Айлық статистика" onClose={() => setStatsOpen(false)}>
-            <StatsView isDark={isDark} state={state} month={month} onRefresh={loadState} />
+            <StatsView isDark={isDark} state={state} month={month} onRefresh={loadState} isMonitor={isMonitor} />
           </Modal>
         )}
 
@@ -1528,7 +1534,7 @@ function formatTenge(amount) {
   return new Intl.NumberFormat("ru-RU").format(n).replace(/,/g, " ") + " ₸";
 }
 
-function StatsView({ isDark, state, month, onRefresh }) {
+function StatsView({ isDark, state, month, onRefresh, isMonitor = false }) {
   const employees = state.employees || [];
   const days = daysInMonth(month);
   const todayDay = state.today?.startsWith(month) ? Number(state.today.slice(-2)) : null;
@@ -1615,13 +1621,15 @@ function StatsView({ isDark, state, month, onRefresh }) {
           <p className={cx("eyebrow", isDark && "eyebrow-dark")}>Барлық қызметкер</p>
           <div className="flex items-center gap-2">
             <span className={cx("text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{totals.length} адам</span>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => { haptic("light"); setAdvFormOpen(true); }}
-              className={cx("rounded-full px-3 py-1 text-[11px] font-black ring-1 transition", isDark ? "bg-amber-500/15 text-amber-300 ring-amber-400/30" : "bg-amber-50 text-amber-700 ring-amber-200")}
-            >
-              + Аванс жазу
-            </motion.button>
+            {!isMonitor && (
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => { haptic("light"); setAdvFormOpen(true); }}
+                className={cx("rounded-full px-3 py-1 text-[11px] font-black ring-1 transition", isDark ? "bg-amber-500/15 text-amber-300 ring-amber-400/30" : "bg-amber-50 text-amber-700 ring-amber-200")}
+              >
+                + Аванс жазу
+              </motion.button>
+            )}
           </div>
         </div>
         <div className="space-y-1.5">
@@ -1678,19 +1686,21 @@ function StatsView({ isDark, state, month, onRefresh }) {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setAdvanceFor(row.employee); }}
-                      className={cx(
-                        "grid size-8 place-items-center rounded-full text-base transition active:scale-90",
-                        monthAdvances[row.employee.id]?.total
-                          ? (isDark ? "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200")
-                          : (isDark ? "bg-white/5 text-slate-500" : "bg-[#f4f7fc] text-[#94a3b8]"),
-                      )}
-                      aria-label="Аванс"
-                    >
-                      💰
-                    </button>
+                    {!isMonitor && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setAdvanceFor(row.employee); }}
+                        className={cx(
+                          "grid size-8 place-items-center rounded-full text-base transition active:scale-90",
+                          monthAdvances[row.employee.id]?.total
+                            ? (isDark ? "bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200")
+                            : (isDark ? "bg-white/5 text-slate-500" : "bg-[#f4f7fc] text-[#94a3b8]"),
+                        )}
+                        aria-label="Аванс"
+                      >
+                        💰
+                      </button>
+                    )}
                     <div className="flex flex-col items-end leading-none">
                       <span className={cx("text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>
                         {formatDays(row.days)}

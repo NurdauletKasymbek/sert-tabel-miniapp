@@ -34,12 +34,14 @@ const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Р
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
 const ADVANCE_HEADERS = ["Күні", "Аты-жөні", "Сома", "Ескертпе"];
+const ADMIN_HEADERS = ["Аты-жөні", "Telegram ID", "Рөл"];
 
 const SHEETS = {
   employees: "Қызметкерлер",
   attendance: "Табель",
   reports: "Есеп",
   advances: "Аванстар",
+  admins: "Әкімшілер",
   history: "Журнал",
 };
 
@@ -272,6 +274,7 @@ async function ensureSheets() {
   await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
   await clearRange(a1(SHEETS.advances, "E1:E5000"));
   await ensureAdvanceNameValidation();
+  await ensureHeader(a1(SHEETS.admins, "A1:C1"), ADMIN_HEADERS);
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
   ensureSheetsLastRun = Date.now();
 }
@@ -402,10 +405,11 @@ export async function loadStore() {
     return storeCache.data;
   }
   await ensureSheets();
-  const [employeeRows, attendanceRows, advanceRows, historyRows] = await Promise.all([
+  const [employeeRows, attendanceRows, advanceRows, adminRows, historyRows] = await Promise.all([
     getValues(a1(SHEETS.employees, "A2:I1000")),
     getValues(a1(SHEETS.attendance, "A2:K5000")),
     getValues(a1(SHEETS.advances, "A2:D5000")),
+    getValues(a1(SHEETS.admins, "A2:C200")),
     getValues(a1(SHEETS.history, "A2:G5000")),
   ]);
   const employees = employeeRows
@@ -438,7 +442,12 @@ export async function loadStore() {
     oldLabel: row[5],
     newLabel: row[6],
   }));
-  const data = { employees, attendance, advances, history };
+  const admins = adminRows.filter((row) => row[1]).map((row) => {
+    const roleText = String(row[2] || "").trim().toLowerCase();
+    const role = roleText.includes("бақыл") || roleText.includes("monitor") || roleText.includes("монитор") ? "monitor" : "admin";
+    return { name: String(row[0] || "").trim(), telegramId: String(row[1]).trim(), role };
+  });
+  const data = { employees, attendance, advances, admins, history };
   storeCache = { at: Date.now(), data };
   return data;
 }
@@ -579,6 +588,19 @@ export function salaryReport(store, employeeId, month) {
   const earned = Math.round(dailyRate * workedEquivalentDays);
   const net = earned - advanceTotal;
   return { monthlySalary, workedEquivalentDays, totalHours, advanceTotal, earned, net, monthlyWorkDays: MONTHLY_WORK_DAYS };
+}
+
+// Қол жеткізу рөлі: env ADMIN_TELEGRAM_IDS — әрқашан толық "admin" (резерв,
+// өзіңізді құлыптап алмау үшін). Содан кейін «Әкімшілер» парағынан рөл.
+// Қайтарады: "admin" | "monitor" | "".
+export function resolveAccessRole(store, telegramId) {
+  const id = String(telegramId || "").trim();
+  if (!id) return "";
+  const envAdmins = String(process.env.ADMIN_TELEGRAM_IDS || "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  if (envAdmins.includes(id)) return "admin";
+  const found = (store.admins || []).find((a) => a.telegramId === id);
+  return found ? found.role : "";
 }
 
 function escapeHtml(value) {

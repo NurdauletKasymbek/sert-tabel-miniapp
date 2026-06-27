@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { loadStore, monthlyHours, salaryReport } from "./_lib/sheets.js";
+import { loadStore, monthlyHours, salaryReport, resolveAccessRole } from "./_lib/sheets.js";
 import { DEJAVU_SANS_BASE64 } from "./_fonts/dejavu-sans.js";
 
 const PDF_FONT = Buffer.from(DEJAVU_SANS_BASE64, "base64");
@@ -132,6 +132,11 @@ async function monthlyReport(req, res) {
     const pdf = await buildMonthlyPdf(report);
     const sendTo = String(req.query.send || "").trim();
     if (sendTo) {
+      // Тек толық әкімші жалақы PDF-ін сұрата алады (бақылаушыға рұқсат жоқ).
+      if (resolveAccessRole(store, sendTo) !== "admin") {
+        res.status(403).json({ error: "Бұл әрекетке рұқсатыңыз жоқ" });
+        return;
+      }
       // Telegram чатқа файл ретінде жіберу (Mini App ішінен сенімді "жүктеу").
       await sendPdfToTelegram(sendTo, `jalaqy-esep-${month}.pdf`, pdf, `📄 ${month} айлық жалақы есебі`);
       res.status(200).json({ ok: true, sentTo: sendTo });
@@ -182,6 +187,14 @@ export default async function handler(req, res) {
     }
 
     const store = await loadStore();
+    const role = resolveAccessRole(store, userId);
+    if (role === "admin" || role === "monitor") {
+      // Толық әкімші немесе бақылаушы — әкімші кабинетіне кіреді (рөл бойынша
+      // жалақы/аванс жасырылады). Жұмысшы деректері керек емес.
+      res.status(200).json({ isAdmin: true, role, userId, employee: null });
+      return;
+    }
+
     const employee = store.employees.find(
       (e) => {
         const tid = String(e.telegramId || "").trim();
@@ -190,7 +203,7 @@ export default async function handler(req, res) {
     );
 
     if (!employee) {
-      res.status(200).json({ isAdmin: Boolean(isAdmin), userId, employee: null });
+      res.status(200).json({ isAdmin: false, role: "", userId, employee: null });
       return;
     }
 
