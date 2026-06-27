@@ -409,8 +409,26 @@ function App() {
     }
   }
 
-  function downloadMonthlyPdf() {
+  const [pdfSending, setPdfSending] = useState(false);
+  async function downloadMonthlyPdf() {
+    if (pdfSending) return;
     haptic("light");
+    // Telegram чатқа файл ретінде жіберу — Mini App браузері файлды жүктемейді,
+    // ал бот арқылы келген PDF-ті нативті түрде ашып/сақтауға болады.
+    if (tgUserId) {
+      setPdfSending(true);
+      try {
+        await api(`/api/me?report=monthly&format=pdf&send=${encodeURIComponent(tgUserId)}&month=${month}`);
+        haptic("success");
+        showToast("success", "📄 PDF Telegram чатыңызға жіберілді");
+      } catch (err) {
+        haptic("error");
+        showToast("error", err.message || "PDF жіберілмеді");
+      } finally {
+        setPdfSending(false);
+      }
+      return;
+    }
     const url = `${window.location.origin}/api/me?report=monthly&format=pdf&month=${month}`;
     const tg = getTelegram();
     if (tg?.openLink) tg.openLink(url);
@@ -740,10 +758,11 @@ function App() {
               <motion.button
                 whileTap={{ scale: 0.92 }}
                 onClick={downloadMonthlyPdf}
-                className="glass-icon text-white"
+                disabled={pdfSending}
+                className="glass-icon text-white disabled:opacity-50"
                 aria-label="Айлық жалақы PDF"
               >
-                <FileDown className="size-5" />
+                <FileDown className={cx("size-5", pdfSending && "animate-pulse")} />
               </motion.button>
               <motion.button
                 whileTap={{ scale: 0.92 }}

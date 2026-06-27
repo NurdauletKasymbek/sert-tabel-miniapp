@@ -130,12 +130,31 @@ async function monthlyReport(req, res) {
   const report = { month, rows, totals };
   if (String(req.query.format || "").toLowerCase() === "pdf") {
     const pdf = await buildMonthlyPdf(report);
+    const sendTo = String(req.query.send || "").trim();
+    if (sendTo) {
+      // Telegram чатқа файл ретінде жіберу (Mini App ішінен сенімді "жүктеу").
+      await sendPdfToTelegram(sendTo, `jalaqy-esep-${month}.pdf`, pdf, `📄 ${month} айлық жалақы есебі`);
+      res.status(200).json({ ok: true, sentTo: sendTo });
+      return;
+    }
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="jalaqy-esep-${month}.pdf"`);
     res.status(200).send(pdf);
     return;
   }
   res.status(200).json(report);
+}
+
+async function sendPdfToTelegram(chatId, filename, buffer, caption) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN орнатылмаған");
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  if (caption) form.append("caption", caption);
+  form.append("document", new Blob([buffer], { type: "application/pdf" }), filename);
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: form });
+  const result = await response.json().catch(() => ({}));
+  if (!result.ok) throw new Error(result.description || "Telegram-ға жіберілмеді");
 }
 
 export default async function handler(req, res) {
