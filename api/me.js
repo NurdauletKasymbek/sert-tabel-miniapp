@@ -190,8 +190,9 @@ export default async function handler(req, res) {
     const role = resolveAccessRole(store, userId);
     if (role === "admin" || role === "monitor") {
       // Толық әкімші немесе бақылаушы — әкімші кабинетіне кіреді (рөл бойынша
-      // жалақы/аванс жасырылады). Жұмысшы деректері керек емес.
-      res.status(200).json({ isAdmin: true, role, userId, employee: null });
+      // жалақы/аванс жасырылады). Аты «Әкімшілер» парағынан алынады.
+      const account = (store.admins || []).find((a) => a.telegramId === userId);
+      res.status(200).json({ isAdmin: true, role, name: account?.name || "", userId, employee: null });
       return;
     }
 

@@ -184,6 +184,7 @@ function App() {
   const [pendingStatus, setPendingStatus] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [isMonitor, setIsMonitor] = useState(false);
+  const [adminName, setAdminName] = useState("");
   const [qrEmployee, setQrEmployee] = useState(null);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -270,6 +271,7 @@ function App() {
         const me = await api(`/api/me?full=1&userId=${encodeURIComponent(userId)}`);
         if (me.isAdmin) {
           setIsMonitor(me.role === "monitor");
+          setAdminName(me.name || "");
           setAccessState("admin");
           loadState();
         } else if (me.employee) {
@@ -734,10 +736,20 @@ function App() {
             : "bg-[linear-gradient(145deg,#07133a_0%,#102a77_48%,#07101f_100%)]")} />
           <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(135deg,rgba(255,255,255,.22)_1px,transparent_1px),linear-gradient(45deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:22px_22px]" />
 
-          <div className="relative flex items-center justify-between">
-            <Avatar photoUrl={tgPhotoUrl} name={tgFirstName || "Әкімші"} size={42} />
+          <div className="relative flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <Avatar photoUrl={tgPhotoUrl} name={adminName || tgFirstName || "Әкімші"} size={42} />
+              <div className="flex min-w-0 flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/55">
+                  {isMonitor ? "Бақылаушы" : "Әкімші"}
+                </span>
+                <span className="truncate text-sm font-black leading-tight text-white">
+                  {adminName || tgFirstName || "Әкімші"}
+                </span>
+              </div>
+            </div>
             <LiveClock now={now} />
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <motion.button
                 whileTap={{ scale: 0.92 }}
                 onClick={() => { haptic("light"); setNotificationsOpen(true); }}
