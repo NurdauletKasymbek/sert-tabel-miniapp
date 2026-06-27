@@ -2019,7 +2019,7 @@ async function sendMonthlyReportsIfDue() {
   const dim = daysInMonth(month);
   const reportDay = monthlyReportDay(Number(parts.year), Number(parts.month), dim);
   const reportDayStr = String(reportDay).padStart(2, "0");
-  if (parts.day !== reportDayStr || parts.hour !== "18" || parts.minute !== "30") return;
+  if (parts.day !== reportDayStr || parts.hour !== "16" || parts.minute !== "30") return;
   const data = await loadData();
   if (data.monthlyReportSent === month) return;
   for (const adminId of ADMIN_IDS) {

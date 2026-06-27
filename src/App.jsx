@@ -757,15 +757,6 @@ function App() {
               </motion.button>
               <motion.button
                 whileTap={{ scale: 0.92 }}
-                onClick={downloadMonthlyPdf}
-                disabled={pdfSending}
-                className="glass-icon text-white disabled:opacity-50"
-                aria-label="Айлық жалақы PDF"
-              >
-                <FileDown className={cx("size-5", pdfSending && "animate-pulse")} />
-              </motion.button>
-              <motion.button
-                whileTap={{ scale: 0.92 }}
                 onClick={() => { haptic("light"); setTheme(theme === "dark" ? "light" : "dark"); }}
                 className="glass-icon text-white"
                 aria-label="Тема"
@@ -795,6 +786,17 @@ function App() {
               <p className="text-lg font-black">Жіберу</p>
             </motion.button>
           </div>
+
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={downloadMonthlyPdf}
+            disabled={pdfSending}
+            className="relative mt-3 flex w-full items-center justify-center gap-2 rounded-[18px] border border-white/18 bg-white/12 px-4 py-3 text-sm font-black text-white backdrop-blur transition active:bg-white/20 disabled:opacity-50"
+            aria-label="Айлық жалақы PDF"
+          >
+            <FileDown className={cx("size-4", pdfSending && "animate-pulse")} />
+            {pdfSending ? "Жіберілуде..." : "Айлық жалақы PDF"}
+          </motion.button>
         </header>
 
         <section className="grid flex-1 grid-rows-[auto_auto_auto_auto_1fr_auto] gap-4 px-4 py-4">
