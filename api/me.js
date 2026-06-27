@@ -9,8 +9,60 @@ function todayInTashkent() {
   }).format(new Date());
 }
 
+function currentMonth() {
+  return todayInTashkent().slice(0, 7);
+}
+
+// Айлық жалақы есептемесі (барлық белсенді қызметкер) — бот PDF жасау үшін.
+// Бөлек serverless функция болмас үшін осы /api/me ішінде report=monthly режимі.
+async function monthlyReport(req, res) {
+  const month = /^\d{4}-\d{2}$/.test(String(req.query.month || ""))
+    ? String(req.query.month)
+    : currentMonth();
+  const store = await loadStore();
+  const employees = store.employees
+    .filter((e) => e.status !== "archived")
+    .sort((a, b) => a.name.localeCompare(b.name, "kk"));
+
+  const rows = employees.map((employee) => {
+    const s = salaryReport(store, employee.id, month);
+    return {
+      id: employee.id,
+      name: employee.name,
+      role: employee.role || "Қызметкер",
+      workedEquivalentDays: s.workedEquivalentDays,
+      totalHours: s.totalHours,
+      advanceTotal: s.advanceTotal,
+      monthlySalary: s.monthlySalary,
+      earned: s.earned,
+      net: s.net,
+    };
+  });
+
+  const totals = rows.reduce(
+    (acc, r) => {
+      acc.workedEquivalentDays += r.workedEquivalentDays;
+      acc.totalHours += r.totalHours;
+      acc.advanceTotal += r.advanceTotal;
+      acc.monthlySalary += r.monthlySalary;
+      acc.earned += r.earned;
+      acc.net += r.net;
+      return acc;
+    },
+    { workedEquivalentDays: 0, totalHours: 0, advanceTotal: 0, monthlySalary: 0, earned: 0, net: 0 },
+  );
+  totals.workedEquivalentDays = Math.round(totals.workedEquivalentDays * 100) / 100;
+  totals.totalHours = Math.round(totals.totalHours * 10) / 10;
+
+  res.status(200).json({ month, rows, totals });
+}
+
 export default async function handler(req, res) {
   try {
+    if (req.query.report === "monthly") {
+      await monthlyReport(req, res);
+      return;
+    }
     const userId = String(req.query.userId || "").trim();
     const full = req.query.full === "1";
     const adminIds = (process.env.ADMIN_TELEGRAM_IDS || "")

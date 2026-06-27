@@ -1986,7 +1986,8 @@ function localDateParts(date = new Date()) {
 
 async function fetchMonthlyReport(month) {
   if (!MINI_APP_URL) throw new Error("MINI_APP_URL орнатылмаған");
-  const response = await fetch(`${MINI_APP_URL}/api/monthly-report?month=${encodeURIComponent(month)}`);
+  // /api/me?report=monthly — бөлек serverless функция қоспау үшін (Hobby лимиті 12).
+  const response = await fetch(`${MINI_APP_URL}/api/me?report=monthly&month=${encodeURIComponent(month)}`);
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
   return result;
