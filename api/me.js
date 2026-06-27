@@ -1,4 +1,4 @@
-import { loadStore, monthlyHours } from "./_lib/sheets.js";
+import { loadStore, monthlyHours, salaryReport } from "./_lib/sheets.js";
 
 function todayInTashkent() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -63,6 +63,7 @@ export default async function handler(req, res) {
     }
 
     const hours = monthlyHours(store.attendance, employee.id, month);
+    const salary = salaryReport(store, employee.id, month);
 
     const broadcasts = (store.history || [])
       .filter((h) => h.action === "Хабарландыру жіберілді")
@@ -87,6 +88,7 @@ export default async function handler(req, res) {
       advanceTotal,
       counts,
       hours,
+      salary,
       broadcasts,
     });
   } catch (error) {

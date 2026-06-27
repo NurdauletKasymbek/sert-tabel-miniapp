@@ -4,9 +4,12 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import QRCode from "qrcode";
+import PDFDocument from "pdfkit";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_PATH = path.join(__dirname, "data.json");
+const PDF_FONT_PATH = path.join(__dirname, "assets", "DejaVuSans.ttf");
+const PDF_FONT_BOLD_PATH = path.join(__dirname, "assets", "DejaVuSans-Bold.ttf");
 
 loadEnvFile(path.join(__dirname, ".env"));
 loadEnvFile(path.join(__dirname, "..", ".env"));
@@ -39,6 +42,9 @@ const HIDDEN_SHEETS = new Set([SHEETS.history, "Daily Control", "Summary", "Repo
 const GOOGLE_CLIENT_EMAIL = cleanGoogleEmail(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) || GOOGLE_SERVICE_ACCOUNT?.client_email || "";
 const GOOGLE_PRIVATE_KEY = (cleanGooglePrivateKey(process.env.GOOGLE_PRIVATE_KEY) || GOOGLE_SERVICE_ACCOUNT?.private_key || "").replaceAll("\\n", "\n");
 const AUTO_SYNC_SHEETS = process.env.AUTO_SYNC_SHEETS === "true";
+const PHONELESS_REMINDER_TIME = /^\d{2}:\d{2}$/.test(process.env.PHONELESS_REMINDER_TIME || "")
+  ? process.env.PHONELESS_REMINDER_TIME
+  : "09:30";
 
 if (!TELEGRAM_TOKEN) {
   console.error("TELEGRAM_BOT_TOKEN көрсетілмеген. Алдымен bot/.env файлын толтырыңыз.");
@@ -234,14 +240,17 @@ async function answerCallback(callbackId, text = "") {
   return telegram("answerCallbackQuery", { callback_query_id: callbackId, text });
 }
 
-async function sendDocument(chatId, fileName, content, caption) {
+async function sendDocument(chatId, fileName, content, caption, contentType = "text/csv;charset=utf-8") {
   const form = new FormData();
   form.append("chat_id", String(chatId));
-  form.append("caption", caption);
-  form.append("document", new Blob([content], { type: "text/csv;charset=utf-8" }), fileName);
+  if (caption) {
+    form.append("caption", caption);
+    form.append("parse_mode", "HTML");
+  }
+  form.append("document", new Blob([content], { type: contentType }), fileName);
   const response = await fetch(`${API_URL}/sendDocument`, { method: "POST", body: form });
   const result = await response.json();
-  if (!result.ok) throw new Error(result.description || "CSV жіберілмеді");
+  if (!result.ok) throw new Error(result.description || "Файл жіберілмеді");
 }
 
 async function sendPhoto(chatId, buffer, caption, extra = {}) {
@@ -697,6 +706,17 @@ async function handleAdminCommand(message, data, command, args) {
   if (command === "/export") {
     const month = /^\d{4}-\d{2}$/.test(args) ? args : currentMonth();
     await sendDocument(chatId, `salary-${month}.csv`, csvReport(data, month), `${month} айлық есеп`);
+    return true;
+  }
+
+  if (command === "/pdf") {
+    const month = /^\d{4}-\d{2}$/.test(args) ? args : currentMonth();
+    await sendMessage(chatId, `⏳ ${month} айлық жалақы PDF дайындалуда...`);
+    try {
+      await sendMonthlyPdf(chatId, month);
+    } catch (error) {
+      await sendMessage(chatId, `❌ PDF жасалмады: ${escapeHtml(error.message)}`);
+    }
     return true;
   }
 
@@ -1415,6 +1435,59 @@ async function handleCheckoutCallback(callback, employeeId) {
   }
 }
 
+// Таңғы еске салудан телефонсыз қызметкерді бір батырмамен белгілеу.
+async function handleQuickMarkCallback(callback, status, employeeId) {
+  if (status !== "present" && status !== "absent") {
+    await answerCallback(callback.id, "Қате");
+    return;
+  }
+  const date = today();
+  try {
+    await postApiAttendance({ date, employeeId, status });
+  } catch (error) {
+    await answerCallback(callback.id, "Сақталмады");
+    await sendMessage(callback.message.chat.id, `❌ ${escapeHtml(error.message)}`);
+    return;
+  }
+  await answerCallback(callback.id, status === "present" ? "✅ Жұмыста" : "❌ Жоқ деп белгіленді");
+  // Белгіленген қызметкердің батырма қатарын тізімнен алып тастаймыз.
+  const oldRows = callback.message.reply_markup?.inline_keyboard || [];
+  const rows = oldRows.filter((row) => !row.some((btn) => String(btn.callback_data || "").endsWith(`:${employeeId}`)));
+  const onlyAllLeft = rows.every((row) => row.every((btn) => String(btn.callback_data || "").startsWith("qallpresent:")));
+  try {
+    if (onlyAllLeft) {
+      await editMessage(callback.message.chat.id, callback.message.message_id, "✅ <b>Барлық телефонсыз қызметкер белгіленді.</b>", { reply_markup: { inline_keyboard: [] } });
+    } else {
+      await telegram("editMessageReplyMarkup", { chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: rows } });
+    }
+  } catch {}
+}
+
+async function handleQuickAllPresentCallback(callback, date) {
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    await answerCallback(callback.id, "Қате");
+    return;
+  }
+  const todayRecords = state.attendance?.[date] || {};
+  const pending = (state.employees || []).filter(
+    (emp) => !String(emp.telegramId || "").trim() && !todayRecords[emp.id],
+  );
+  let ok = 0;
+  for (const emp of pending) {
+    try {
+      await postApiAttendance({ date, employeeId: emp.id, status: "present" });
+      ok += 1;
+    } catch {}
+  }
+  await answerCallback(callback.id, `✅ ${ok} қызметкер белгіленді`);
+  try {
+    await editMessage(callback.message.chat.id, callback.message.message_id, `✅ <b>${ok} телефонсыз қызметкер «Жұмыста» деп белгіленді.</b>`, { reply_markup: { inline_keyboard: [] } });
+  } catch {}
+}
+
 async function handleCallback(callback) {
   const userId = String(callback.from.id);
   const chatId = callback.message.chat.id;
@@ -1436,6 +1509,25 @@ async function handleCallback(callback) {
 
   if (dataValue.startsWith("checkout:")) {
     await handleCheckoutCallback(callback, dataValue.slice("checkout:".length));
+    return;
+  }
+
+  if (dataValue.startsWith("qmark:")) {
+    if (!isAdmin(userId)) {
+      await answerCallback(callback.id, "Рұқсат жоқ");
+      return;
+    }
+    const [, status, empId] = dataValue.split(":");
+    await handleQuickMarkCallback(callback, status, empId);
+    return;
+  }
+
+  if (dataValue.startsWith("qallpresent:")) {
+    if (!isAdmin(userId)) {
+      await answerCallback(callback.id, "Рұқсат жоқ");
+      return;
+    }
+    await handleQuickAllPresentCallback(callback, dataValue.slice("qallpresent:".length));
     return;
   }
 
@@ -1892,23 +1984,187 @@ function localDateParts(date = new Date()) {
   return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
 }
 
+async function fetchMonthlyReport(month) {
+  if (!MINI_APP_URL) throw new Error("MINI_APP_URL орнатылмаған");
+  const response = await fetch(`${MINI_APP_URL}/api/monthly-report?month=${encodeURIComponent(month)}`);
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
+  return result;
+}
+
+function pdfMoney(value) {
+  return `${Number(value || 0).toLocaleString("ru-RU")} ₸`;
+}
+
+// Айлық жалақы есептемесін PDF етіп құрастыру (қазақша кириллица — DejaVu қаріп).
+function buildMonthlyPdf(report) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: "A4", margin: 36 });
+      const chunks = [];
+      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      const hasFont = existsSync(PDF_FONT_PATH);
+      const regular = hasFont ? "DejaVu" : "Helvetica";
+      const bold = hasFont ? (existsSync(PDF_FONT_BOLD_PATH) ? "DejaVu-Bold" : "DejaVu") : "Helvetica-Bold";
+      if (hasFont) {
+        doc.registerFont("DejaVu", PDF_FONT_PATH);
+        if (existsSync(PDF_FONT_BOLD_PATH)) doc.registerFont("DejaVu-Bold", PDF_FONT_BOLD_PATH);
+      }
+
+      doc.font(bold).fontSize(18).text(`Айлық жалақы есебі — ${report.month}`, { align: "left" });
+      doc.moveDown(0.3);
+      doc.font(regular).fontSize(9).fillColor("#555")
+        .text(`Құрылған: ${new Date().toLocaleString("ru-RU", { timeZone: TIME_ZONE })}`);
+      doc.fillColor("#000").moveDown(0.8);
+
+      // Кесте бағандары
+      const cols = [
+        { key: "name", title: "Аты-жөні", width: 150, align: "left" },
+        { key: "workedEquivalentDays", title: "Күн", width: 48, align: "right" },
+        { key: "totalHours", title: "Сағат", width: 54, align: "right" },
+        { key: "monthlySalary", title: "Айлық", width: 78, align: "right" },
+        { key: "advanceTotal", title: "Аванс", width: 70, align: "right" },
+        { key: "net", title: "Таза қолға", width: 84, align: "right" },
+      ];
+      const startX = doc.page.margins.left;
+      const rowHeight = 20;
+
+      function drawRow(y, values, { header = false, total = false } = {}) {
+        let x = startX;
+        if (header || total) {
+          doc.rect(x, y - 3, cols.reduce((s, c) => s + c.width, 0), rowHeight).fill(header ? "#0b1b5f" : "#eef2f8");
+        }
+        doc.font(header || total ? bold : regular).fontSize(9).fillColor(header ? "#ffffff" : "#07122b");
+        for (let i = 0; i < cols.length; i += 1) {
+          const col = cols[i];
+          doc.text(String(values[i] ?? ""), x + 4, y, { width: col.width - 8, align: col.align, lineBreak: false });
+          x += col.width;
+        }
+        doc.fillColor("#000");
+      }
+
+      let y = doc.y;
+      drawRow(y, cols.map((c) => c.title), { header: true });
+      y += rowHeight;
+
+      for (const row of report.rows) {
+        if (y > doc.page.height - doc.page.margins.bottom - rowHeight * 2) {
+          doc.addPage();
+          y = doc.page.margins.top;
+          drawRow(y, cols.map((c) => c.title), { header: true });
+          y += rowHeight;
+        }
+        drawRow(y, [
+          row.name,
+          row.workedEquivalentDays,
+          row.totalHours,
+          pdfMoney(row.monthlySalary),
+          pdfMoney(row.advanceTotal),
+          pdfMoney(row.net),
+        ]);
+        y += rowHeight;
+      }
+
+      const t = report.totals || {};
+      drawRow(y, [
+        "Барлығы",
+        t.workedEquivalentDays ?? "",
+        t.totalHours ?? "",
+        pdfMoney(t.monthlySalary),
+        pdfMoney(t.advanceTotal),
+        pdfMoney(t.net),
+      ], { total: true });
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function sendMonthlyPdf(chatId, month) {
+  const report = await fetchMonthlyReport(month);
+  const pdf = await buildMonthlyPdf(report);
+  await sendDocument(
+    chatId,
+    `jalaqy-esep-${month}.pdf`,
+    pdf,
+    `<b>${month}</b> айлық жалақы есебі`,
+    "application/pdf",
+  );
+}
+
 async function sendMonthlyReportsIfDue() {
   const parts = localDateParts();
-  if (parts.day !== "30" || parts.hour !== "09" || parts.minute !== "00") return;
   const month = `${parts.year}-${parts.month}`;
+  const lastDay = String(daysInMonth(month)).padStart(2, "0");
+  // Айдың соңғы күні (28/29/30/31) 18:30-да автоматты PDF жіберіледі.
+  if (parts.day !== lastDay || parts.hour !== "18" || parts.minute !== "30") return;
   const data = await loadData();
   if (data.monthlyReportSent === month) return;
-  const text = [
-    `<b>${month} автомат табель есебі</b>`,
-    "Айдың 30-күні 09:00 есебі:",
-    "",
-    reportText(data, month),
-  ].join("\n");
   for (const adminId of ADMIN_IDS) {
-    await sendMessage(adminId, text);
+    try {
+      await sendMonthlyPdf(adminId, month);
+    } catch (error) {
+      await sendMessage(adminId, `❌ Айлық PDF жіберілмеді: ${escapeHtml(error.message)}`).catch(() => {});
+    }
   }
   data.monthlyReportSent = month;
   await saveData(data, { syncSheets: false });
+}
+
+async function sendPhonelessReminderIfDue() {
+  const parts = localDateParts();
+  const time = `${parts.hour}:${parts.minute}`;
+  if (time !== PHONELESS_REMINDER_TIME) return;
+  const date = `${parts.year}-${parts.month}-${parts.day}`;
+  const data = await loadData();
+  if (data.phonelessReminderSent === date) return;
+  data.phonelessReminderSent = date;
+  await saveData(data, { syncSheets: false });
+  await sendPhonelessReminder(date);
+}
+
+// Телефоны жоқ (telegramId жоқ) әрі бүгін белгіленбеген қызметкерлерді
+// админге тізіммен + жылдам белгілеу батырмаларымен еске салу.
+async function sendPhonelessReminder(date) {
+  let state;
+  try {
+    state = await fetchApiState();
+  } catch (error) {
+    for (const adminId of ADMIN_IDS) {
+      await sendMessage(adminId, `❌ Еске салу дайындалмады: ${escapeHtml(error.message)}`).catch(() => {});
+    }
+    return;
+  }
+  const todayRecords = state.attendance?.[date] || {};
+  const pending = (state.employees || []).filter(
+    (emp) => !String(emp.telegramId || "").trim() && !todayRecords[emp.id],
+  );
+  if (!pending.length) return;
+
+  const rows = pending.map((emp) => [
+    { text: `✅ ${emp.name}`.slice(0, 30), callback_data: `qmark:present:${emp.id}` },
+    { text: "❌ Жоқ", callback_data: `qmark:absent:${emp.id}` },
+  ]);
+  rows.push([{ text: "✅ Барлығын Жұмыста", callback_data: `qallpresent:${date}` }]);
+
+  const text = [
+    "🔔 <b>Телефонсыз қызметкерлерді белгілеу</b>",
+    `Күн: <b>${date}</b>`,
+    "",
+    "Бүгін әлі белгіленбегендер:",
+    ...pending.map((emp) => `• ${escapeHtml(emp.name)}`),
+    "",
+    "Төмендегі батырмамен бірден белгілеңіз 👇",
+  ].join("\n");
+
+  for (const adminId of ADMIN_IDS) {
+    await sendMessage(adminId, text, { reply_markup: { inline_keyboard: rows } }).catch(() => {});
+  }
 }
 
 async function configureBotMenu() {
@@ -1936,8 +2192,10 @@ async function poll() {
   await configureBotMenu();
   setInterval(() => {
     sendMonthlyReportsIfDue().catch((error) => console.error(`Monthly report failed: ${error.message}`));
+    sendPhonelessReminderIfDue().catch((error) => console.error(`Phoneless reminder failed: ${error.message}`));
   }, 60_000);
   sendMonthlyReportsIfDue().catch((error) => console.error(`Monthly report failed: ${error.message}`));
+  sendPhonelessReminderIfDue().catch((error) => console.error(`Phoneless reminder failed: ${error.message}`));
 
   while (true) {
     try {

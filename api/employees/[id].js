@@ -17,6 +17,7 @@ export default async function handler(req, res) {
     if (body.role !== undefined) employee.role = String(body.role).trim() || "Қызметкер";
     if (body.schedule !== undefined) employee.schedule = body.schedule === "school-half" ? "school-half" : "standard";
     if (body.telegramId !== undefined) employee.telegramId = body.telegramId ? String(body.telegramId).trim() : "";
+    if (body.monthlySalary !== undefined) employee.monthlySalary = Number(String(body.monthlySalary).replace(/[^\d.-]/g, "")) || 0;
     if (body.status === "archived" || body.status === "active") {
       const oldStatus = employee.status === "archived" ? "Архив" : "Белсенді";
       employee.status = body.status;

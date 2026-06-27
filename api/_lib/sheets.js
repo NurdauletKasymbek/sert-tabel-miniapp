@@ -7,7 +7,10 @@ const STATUSES = {
   dayoff: { label: "Демалыс" },
 };
 
-const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні", "Кесте", "Telegram ID"];
+const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні", "Кесте", "Telegram ID", "Айлық жалақы"];
+
+const MONTHLY_WORK_DAYS = Number(process.env.MONTHLY_WORK_DAYS) > 0 ? Number(process.env.MONTHLY_WORK_DAYS) : 26;
+const DAILY_NORM_HOURS = 9;
 
 const SCHEDULE_LABELS = {
   standard: "Стандарт",
@@ -263,7 +266,7 @@ async function ensureSheets() {
 
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 
-  await ensureHeader(a1(SHEETS.employees, "A1:H1"), EMPLOYEE_HEADERS);
+  await ensureHeader(a1(SHEETS.employees, "A1:I1"), EMPLOYEE_HEADERS);
   await ensureHeader(a1(SHEETS.attendance, "A1:K1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:K1"), SUMMARY_HEADERS);
   await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
@@ -352,6 +355,7 @@ function rowToEmployee(row) {
     archivedAt: row[5] || "",
     schedule: labelToSchedule(row[6]),
     telegramId: row[7] ? String(row[7]).trim() : "",
+    monthlySalary: Number(String(row[8] || "0").replace(/[^\d.-]/g, "")) || 0,
   };
 }
 
@@ -365,6 +369,7 @@ function employeeToRow(employee) {
     employee.archivedAt || "",
     scheduleToLabel(employee.schedule || "standard"),
     employee.telegramId ? String(employee.telegramId) : "",
+    employee.monthlySalary || 0,
   ];
 }
 
@@ -398,7 +403,7 @@ export async function loadStore() {
   }
   await ensureSheets();
   const [employeeRows, attendanceRows, advanceRows, historyRows] = await Promise.all([
-    getValues(a1(SHEETS.employees, "A2:H1000")),
+    getValues(a1(SHEETS.employees, "A2:I1000")),
     getValues(a1(SHEETS.attendance, "A2:K5000")),
     getValues(a1(SHEETS.advances, "A2:D5000")),
     getValues(a1(SHEETS.history, "A2:G5000")),
@@ -539,6 +544,43 @@ export function monthlyHours(attendance, employeeId, month) {
   return { totalDays, totalHours: Math.round((totalMinutes / 60) * 10) / 10 };
 }
 
+// Әр жұмыс күнінің эквивалент үлесі (сағатқа пропорционал).
+// Кіру+Шығу болса: істелген минут / (9 сағат). Толық күн = 1.
+// Уақыт жоқ "Жұмыста" (қолмен/телефонсыз) = 1, "Жарты күн" = 0.5, қалғаны = 0.
+function dayFraction(row) {
+  if (row.checkInTime && row.checkOutTime) {
+    const minutes = timeStringToMinutes(row.checkOutTime) - timeStringToMinutes(row.checkInTime);
+    if (minutes <= 0) return row.label === "Жұмыста" ? 1 : 0;
+    return Math.min(minutes / (DAILY_NORM_HOURS * 60), 1);
+  }
+  if (row.label === "Жұмыста") return 1;
+  if (row.label === "Жарты күн") return 0.5;
+  return 0;
+}
+
+// Сағатқа пропорционал жалақы:
+//   dailyRate = monthlySalary / MONTHLY_WORK_DAYS
+//   earned    = dailyRate × Σ(күн үлесі)
+//   net       = earned − аванс
+export function salaryReport(store, employeeId, month) {
+  const employee = store.employees.find((item) => item.id === employeeId);
+  const monthlySalary = employee?.monthlySalary || 0;
+  let workedEquivalentDays = 0;
+  for (const row of store.attendance) {
+    if (!row.date.startsWith(month) || row.employeeId !== employeeId) continue;
+    workedEquivalentDays += dayFraction(row);
+  }
+  workedEquivalentDays = Math.round(workedEquivalentDays * 100) / 100;
+  const { totalHours } = monthlyHours(store.attendance, employeeId, month);
+  const advanceTotal = (store.advances || [])
+    .filter((adv) => adv.employeeId === employeeId && (adv.date || "").startsWith(month))
+    .reduce((sum, adv) => sum + (adv.amount || 0), 0);
+  const dailyRate = MONTHLY_WORK_DAYS > 0 ? monthlySalary / MONTHLY_WORK_DAYS : 0;
+  const earned = Math.round(dailyRate * workedEquivalentDays);
+  const net = earned - advanceTotal;
+  return { monthlySalary, workedEquivalentDays, totalHours, advanceTotal, earned, net, monthlyWorkDays: MONTHLY_WORK_DAYS };
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -630,8 +672,8 @@ export function nextEmployeeId(employees) {
 export async function saveEmployees(employees) {
   storeCache = null;
   await ensureSheets();
-  await clearRange(a1(SHEETS.employees, "A2:H1000"));
-  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:H1000"), employees.map(employeeToRow));
+  await clearRange(a1(SHEETS.employees, "A2:I1000"));
+  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:I1000"), employees.map(employeeToRow));
 }
 
 export async function saveAttendance(attendance) {

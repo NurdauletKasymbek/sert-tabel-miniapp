@@ -408,6 +408,22 @@ function App() {
     }
   }
 
+  async function saveSalary(employeeId, value) {
+    haptic("medium");
+    try {
+      const next = await api(`/api/employees/${encodeURIComponent(employeeId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ monthlySalary: value }),
+      });
+      setState(next);
+      haptic("success");
+      showToast("success", "Айлық жалақы сақталды.");
+    } catch (err) {
+      haptic("error");
+      showToast("error", err.message);
+    }
+  }
+
   async function restoreEmployee(employeeId) {
     haptic("medium");
     try {
@@ -887,6 +903,13 @@ function App() {
                     ))}
                   </div>
 
+                  <SalaryEditor
+                    isDark={isDark}
+                    key={`salary-${selected.id}`}
+                    value={selected.monthlySalary || 0}
+                    onSave={(amount) => saveSalary(selected.id, amount)}
+                  />
+
                   <div className={cx("mt-4 flex items-center justify-between rounded-[22px] px-3 py-2", isDark ? "bg-white/5" : "bg-[#f1f5fb]")}>
                     <motion.button whileTap={{ scale: 0.9 }} onClick={() => { haptic("selection"); setMonth(addMonths(month, -1)); }} className={cx("nav-round", isDark && "nav-round-dark")} aria-label="Алдыңғы ай">
                       <ChevronLeft className="size-5" />
@@ -1203,6 +1226,50 @@ function SmallStat({ isDark, meta, value }) {
       <motion.p key={value} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mt-1 text-base font-black">
         {value}
       </motion.p>
+    </div>
+  );
+}
+
+function SalaryEditor({ isDark, value, onSave }) {
+  const [raw, setRaw] = useState(String(value || ""));
+  const [saving, setSaving] = useState(false);
+  const dirty = (Number(raw.replace(/\s/g, "")) || 0) !== (value || 0);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onSave(Number(raw.replace(/\s/g, "")) || 0);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={cx("mt-4 rounded-[20px] p-3", isDark ? "bg-white/5" : "bg-[#f1f5fb]")}>
+      <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+        💵 Бекітілген айлық жалақы
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          inputMode="numeric"
+          value={raw}
+          onChange={(e) => setRaw(e.target.value.replace(/[^\d]/g, ""))}
+          placeholder="0"
+          className={cx(
+            "min-w-0 flex-1 rounded-[14px] px-3 py-2.5 text-base font-black outline-none ring-1",
+            isDark ? "bg-[#0a1126] text-white ring-white/10" : "bg-white text-[#07122b] ring-[#e3e9f3]",
+          )}
+        />
+        <span className={cx("text-sm font-black", isDark ? "text-slate-400" : "text-[#7a86a0]")}>₸</span>
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={handleSave}
+          disabled={!dirty || saving}
+          className="rounded-[14px] bg-[#0b1b5f] px-4 py-2.5 text-sm font-black text-white disabled:opacity-40"
+        >
+          {saving ? "..." : "Сақтау"}
+        </motion.button>
+      </div>
     </div>
   );
 }
@@ -1712,6 +1779,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const todayRow = data.todayRow;
   const counts = data.counts || { present: 0, half: 0, absent: 0, dayoff: 0 };
   const hours = data.hours || { totalDays: 0, totalHours: 0 };
+  const salary = data.salary || { monthlySalary: 0, workedEquivalentDays: 0, totalHours: 0, advanceTotal: 0, earned: 0, net: 0 };
   const advanceTotal = data.advanceTotal || 0;
   const broadcasts = data.broadcasts || [];
   const month = data.month || "";
@@ -2028,6 +2096,38 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
               </p>
             </div>
           </div>
+
+          {salary.monthlySalary > 0 && (
+            <div className="mt-5">
+              <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                💵 Менің жалақым ({month})
+              </p>
+              <div className={cx("rounded-[22px] p-4", isDark ? "bg-white/5" : "bg-white shadow")}>
+                <div className="flex items-baseline justify-between">
+                  <span className={cx("text-xs font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Таза қолға</span>
+                  <span className={cx("text-3xl font-black", salary.net < 0 ? "text-red-500" : isDark ? "text-emerald-300" : "text-emerald-600")}>
+                    {salary.net.toLocaleString("kk-KZ")} ₸
+                  </span>
+                </div>
+                <div className={cx("mt-3 space-y-1.5 border-t pt-3 text-[13px] font-bold", isDark ? "border-white/10" : "border-[#eef2f8]")}>
+                  <div className="flex items-center justify-between">
+                    <span className={cx(isDark ? "text-slate-400" : "text-[#7a86a0]")}>Бекітілген айлық</span>
+                    <span className={cx(isDark ? "text-white" : "text-[#07122b]")}>{salary.monthlySalary.toLocaleString("kk-KZ")} ₸</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className={cx(isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                      Істелгені ({salary.workedEquivalentDays} күн · {salary.totalHours} сағ)
+                    </span>
+                    <span className={cx(isDark ? "text-white" : "text-[#07122b]")}>{(salary.earned || 0).toLocaleString("kk-KZ")} ₸</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className={cx(isDark ? "text-slate-400" : "text-[#7a86a0]")}>Аванс</span>
+                    <span className="text-amber-500">− {(salary.advanceTotal || 0).toLocaleString("kk-KZ")} ₸</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="mt-5">
             <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>

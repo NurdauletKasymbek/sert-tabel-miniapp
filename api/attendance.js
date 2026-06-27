@@ -1,7 +1,5 @@
 import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, todayDate, STATUSES } from "./_lib/sheets.js";
 
-const HALF_DAY_AFTER_HOUR = 12;
-const HALF_DAY_THRESHOLD_HOURS = 4.5;
 const WORK_END_HOUR = 18;
 
 function timeToMinutes(time) {
@@ -106,10 +104,11 @@ export default async function handler(req, res) {
           res.status(400).json({ error: "Бүгін кіру белгісі бар. Шығуды басыңыз." });
           return;
         }
-        const checkInHour = Number(now.split(":")[0] || 0);
         const checkInTotal = timeToMinutes(now);
         const lateMin = checkInTotal > 9 * 60 ? checkInTotal - 9 * 60 : 0;
-        const status = checkInHour >= HALF_DAY_AFTER_HOUR ? "half" : "present";
+        // Нақты сағат жазылады — кеш келсе де "Жұмыста" болып қалады, жалақы
+        // істелген минутқа пропорционал есептеледі (salaryReport).
+        const status = "present";
         const label = statusToLabel(status);
 
         store.attendance = store.attendance.filter(
@@ -169,11 +168,9 @@ export default async function handler(req, res) {
 
       const checkOutTotal = timeToMinutes(now);
       const earlyMin = checkOutTotal < WORK_END_HOUR * 60 ? WORK_END_HOUR * 60 - checkOutTotal : 0;
-      const workedMinutes = checkOutTotal - timeToMinutes(wExisting.checkInTime);
-      let newLabel = wExisting.label;
-      if (workedMinutes > 0 && workedMinutes < HALF_DAY_THRESHOLD_HOURS * 60 && wExisting.label === "Жұмыста") {
-        newLabel = "Жарты күн";
-      }
+      // Белгі өзгермейді — қысқа күн "Жарты күн" деп қойылмайды, нақты
+      // Кіру/Шығу сағаты сақталады да, жалақы сол сағатқа пропорционал есептеледі.
+      const newLabel = wExisting.label;
 
       store.attendance = store.attendance.filter(
         (row) => !(row.date === wToday && row.employeeId === wEmployee.id),
@@ -244,13 +241,8 @@ export default async function handler(req, res) {
         return;
       }
 
-      let newLabel = existing.label;
-      if (existing.checkInTime && checkOutTime) {
-        const workedMinutes = timeToMinutes(checkOutTime) - timeToMinutes(existing.checkInTime);
-        if (workedMinutes > 0 && workedMinutes < HALF_DAY_THRESHOLD_HOURS * 60 && existing.label === "Жұмыста") {
-          newLabel = "Жарты күн";
-        }
-      }
+      // Белгі сол күйінде қалады — қысқа жұмыс күні нақты сағатпен есепке алынады.
+      const newLabel = existing.label;
 
       store.attendance = store.attendance.filter((row) => !(row.date === date && row.employeeId === employeeId));
       store.attendance.push({
@@ -287,13 +279,6 @@ export default async function handler(req, res) {
     const role = employee.role || "Қызметкер";
     const now = currentTime();
     const isNewCheckIn = !existing && status === "present" && date === todayDate();
-
-    if (isNewCheckIn) {
-      const checkInHour = Number(now.split(":")[0] || 0);
-      if (checkInHour >= HALF_DAY_AFTER_HOUR) {
-        status = "half";
-      }
-    }
     const label = statusToLabel(status);
 
     // Keep only one record per employee per day so changing a mistaken mark really replaces it.
