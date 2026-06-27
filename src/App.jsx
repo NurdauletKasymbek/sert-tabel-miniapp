@@ -743,12 +743,11 @@ function App() {
                 <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/55">
                   {isMonitor ? "Бақылаушы" : "Әкімші"}
                 </span>
-                <span className="truncate text-sm font-black leading-tight text-white">
+                <span className="truncate text-base font-black leading-tight text-white">
                   {adminName || tgFirstName || "Әкімші"}
                 </span>
               </div>
             </div>
-            <LiveClock now={now} />
             <div className="flex shrink-0 items-center gap-2">
               <motion.button
                 whileTap={{ scale: 0.92 }}
