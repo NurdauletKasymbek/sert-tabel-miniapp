@@ -799,7 +799,7 @@ function App() {
           </motion.button>
         </header>
 
-        <section className="grid flex-1 grid-rows-[auto_auto_auto_auto_1fr_auto] gap-4 px-4 py-4">
+        <section className="grid flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_auto_1fr_auto] gap-4 px-4 py-4">
           <div className="premium-search">
             <Search className={cx("size-4", isDark ? "text-slate-400" : "text-[#7a86a0]")} />
             <input
@@ -853,7 +853,7 @@ function App() {
             </div>
           </section>
 
-          <div className="no-scrollbar flex gap-2 overflow-x-auto">
+          <div className="no-scrollbar flex min-w-0 gap-2 overflow-x-auto">
             <FilterChip isDark={isDark} active={!roleFilter} onClick={() => { haptic("selection"); setRoleFilter(""); }}>Барлығы</FilterChip>
             {(state.roles || []).map((role) => (
               <FilterChip isDark={isDark} key={role} active={roleFilter === role} onClick={() => { haptic("selection"); setRoleFilter(role); }}>
@@ -868,7 +868,7 @@ function App() {
           </div>
 
           <LayoutGroup id="employee-tabs">
-            <div ref={employeeListRef} className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth">
+            <div ref={employeeListRef} className="no-scrollbar flex min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth">
               {filteredEmployees.map((employee) => {
                 const active = employee.id === selected?.id;
                 const markedCount = Object.values(employee.counts || {}).reduce((sum, value) => sum + value, 0);
