@@ -14,6 +14,7 @@ import {
   ChevronRight,
   CircleMinus,
   Clock3,
+  FileDown,
   FileSpreadsheet,
   Megaphone,
   Moon,
@@ -408,6 +409,14 @@ function App() {
     }
   }
 
+  function downloadMonthlyPdf() {
+    haptic("light");
+    const url = `${window.location.origin}/api/me?report=monthly&format=pdf&month=${month}`;
+    const tg = getTelegram();
+    if (tg?.openLink) tg.openLink(url);
+    else window.open(url, "_blank");
+  }
+
   async function saveSalary(employeeId, value) {
     haptic("medium");
     try {
@@ -727,6 +736,14 @@ function App() {
                 aria-label="Айлық статистика"
               >
                 <BarChart3 className="size-5" />
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={downloadMonthlyPdf}
+                className="glass-icon text-white"
+                aria-label="Айлық жалақы PDF"
+              >
+                <FileDown className="size-5" />
               </motion.button>
               <motion.button
                 whileTap={{ scale: 0.92 }}

@@ -4,12 +4,9 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import QRCode from "qrcode";
-import PDFDocument from "pdfkit";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_PATH = path.join(__dirname, "data.json");
-const PDF_FONT_PATH = path.join(__dirname, "assets", "DejaVuSans.ttf");
-const PDF_FONT_BOLD_PATH = path.join(__dirname, "assets", "DejaVuSans-Bold.ttf");
 
 loadEnvFile(path.join(__dirname, ".env"));
 loadEnvFile(path.join(__dirname, "..", ".env"));
@@ -1984,111 +1981,21 @@ function localDateParts(date = new Date()) {
   return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
 }
 
-async function fetchMonthlyReport(month) {
+// PDF Vercel жағында жасалады (бір ғана көз — api/me.js). Бот тек байттарды
+// алып, Telegram-ға жібереді. Сол URL-ді Mini App батырмасы да қолданады.
+async function fetchMonthlyPdf(month) {
   if (!MINI_APP_URL) throw new Error("MINI_APP_URL орнатылмаған");
-  // /api/me?report=monthly — бөлек serverless функция қоспау үшін (Hobby лимиті 12).
-  const response = await fetch(`${MINI_APP_URL}/api/me?report=monthly&month=${encodeURIComponent(month)}`);
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || `API қатесі: ${response.status}`);
-  return result;
-}
-
-function pdfMoney(value) {
-  return `${Number(value || 0).toLocaleString("ru-RU")} ₸`;
-}
-
-// Айлық жалақы есептемесін PDF етіп құрастыру (қазақша кириллица — DejaVu қаріп).
-function buildMonthlyPdf(report) {
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ size: "A4", margin: 36 });
-      const chunks = [];
-      doc.on("data", (chunk) => chunks.push(chunk));
-      doc.on("end", () => resolve(Buffer.concat(chunks)));
-      doc.on("error", reject);
-
-      const hasFont = existsSync(PDF_FONT_PATH);
-      const regular = hasFont ? "DejaVu" : "Helvetica";
-      const bold = hasFont ? (existsSync(PDF_FONT_BOLD_PATH) ? "DejaVu-Bold" : "DejaVu") : "Helvetica-Bold";
-      if (hasFont) {
-        doc.registerFont("DejaVu", PDF_FONT_PATH);
-        if (existsSync(PDF_FONT_BOLD_PATH)) doc.registerFont("DejaVu-Bold", PDF_FONT_BOLD_PATH);
-      }
-
-      doc.font(bold).fontSize(18).text(`Айлық жалақы есебі — ${report.month}`, { align: "left" });
-      doc.moveDown(0.3);
-      doc.font(regular).fontSize(9).fillColor("#555")
-        .text(`Құрылған: ${new Date().toLocaleString("ru-RU", { timeZone: TIME_ZONE })}`);
-      doc.fillColor("#000").moveDown(0.8);
-
-      // Кесте бағандары
-      const cols = [
-        { key: "name", title: "Аты-жөні", width: 150, align: "left" },
-        { key: "workedEquivalentDays", title: "Күн", width: 48, align: "right" },
-        { key: "totalHours", title: "Сағат", width: 54, align: "right" },
-        { key: "monthlySalary", title: "Айлық", width: 78, align: "right" },
-        { key: "advanceTotal", title: "Аванс", width: 70, align: "right" },
-        { key: "net", title: "Таза қолға", width: 84, align: "right" },
-      ];
-      const startX = doc.page.margins.left;
-      const rowHeight = 20;
-
-      function drawRow(y, values, { header = false, total = false } = {}) {
-        let x = startX;
-        if (header || total) {
-          doc.rect(x, y - 3, cols.reduce((s, c) => s + c.width, 0), rowHeight).fill(header ? "#0b1b5f" : "#eef2f8");
-        }
-        doc.font(header || total ? bold : regular).fontSize(9).fillColor(header ? "#ffffff" : "#07122b");
-        for (let i = 0; i < cols.length; i += 1) {
-          const col = cols[i];
-          doc.text(String(values[i] ?? ""), x + 4, y, { width: col.width - 8, align: col.align, lineBreak: false });
-          x += col.width;
-        }
-        doc.fillColor("#000");
-      }
-
-      let y = doc.y;
-      drawRow(y, cols.map((c) => c.title), { header: true });
-      y += rowHeight;
-
-      for (const row of report.rows) {
-        if (y > doc.page.height - doc.page.margins.bottom - rowHeight * 2) {
-          doc.addPage();
-          y = doc.page.margins.top;
-          drawRow(y, cols.map((c) => c.title), { header: true });
-          y += rowHeight;
-        }
-        drawRow(y, [
-          row.name,
-          row.workedEquivalentDays,
-          row.totalHours,
-          pdfMoney(row.monthlySalary),
-          pdfMoney(row.advanceTotal),
-          pdfMoney(row.net),
-        ]);
-        y += rowHeight;
-      }
-
-      const t = report.totals || {};
-      drawRow(y, [
-        "Барлығы",
-        t.workedEquivalentDays ?? "",
-        t.totalHours ?? "",
-        pdfMoney(t.monthlySalary),
-        pdfMoney(t.advanceTotal),
-        pdfMoney(t.net),
-      ], { total: true });
-
-      doc.end();
-    } catch (error) {
-      reject(error);
-    }
-  });
+  const response = await fetch(`${MINI_APP_URL}/api/me?report=monthly&format=pdf&month=${encodeURIComponent(month)}`);
+  if (!response.ok) {
+    let msg = `API қатесі: ${response.status}`;
+    try { const j = await response.json(); if (j.error) msg = j.error; } catch {}
+    throw new Error(msg);
+  }
+  return Buffer.from(await response.arrayBuffer());
 }
 
 async function sendMonthlyPdf(chatId, month) {
-  const report = await fetchMonthlyReport(month);
-  const pdf = await buildMonthlyPdf(report);
+  const pdf = await fetchMonthlyPdf(month);
   await sendDocument(
     chatId,
     `jalaqy-esep-${month}.pdf`,
@@ -2098,12 +2005,21 @@ async function sendMonthlyPdf(chatId, month) {
   );
 }
 
+// Автоматты жіберу күні: айдың соңғы күні. Бірақ ол жексенбіге келсе —
+// алдыңғы күн (сенбі). Жұмыс дүйсенбі–сенбі, жексенбіде жұмыс жоқ, әрі
+// есеп толық айды қамтиды (жексенбіде қатысу болмайды).
+function monthlyReportDay(year, monthNum, lastDay) {
+  const weekday = new Date(Date.UTC(year, monthNum - 1, lastDay)).getUTCDay(); // 0=жексенбі
+  return weekday === 0 ? lastDay - 1 : lastDay;
+}
+
 async function sendMonthlyReportsIfDue() {
   const parts = localDateParts();
   const month = `${parts.year}-${parts.month}`;
-  const lastDay = String(daysInMonth(month)).padStart(2, "0");
-  // Айдың соңғы күні (28/29/30/31) 18:30-да автоматты PDF жіберіледі.
-  if (parts.day !== lastDay || parts.hour !== "18" || parts.minute !== "30") return;
+  const dim = daysInMonth(month);
+  const reportDay = monthlyReportDay(Number(parts.year), Number(parts.month), dim);
+  const reportDayStr = String(reportDay).padStart(2, "0");
+  if (parts.day !== reportDayStr || parts.hour !== "18" || parts.minute !== "30") return;
   const data = await loadData();
   if (data.monthlyReportSent === month) return;
   for (const adminId of ADMIN_IDS) {

@@ -1,4 +1,77 @@
+import PDFDocument from "pdfkit";
 import { loadStore, monthlyHours, salaryReport } from "./_lib/sheets.js";
+import { DEJAVU_SANS_BASE64 } from "./_fonts/dejavu-sans.js";
+
+const PDF_FONT = Buffer.from(DEJAVU_SANS_BASE64, "base64");
+
+function pdfMoney(value) {
+  return `${Number(value || 0).toLocaleString("ru-RU")} ₸`;
+}
+
+// Айлық жалақы есептемесінен PDF құрастыру (қазақ кириллица — DejaVu қаріп).
+function buildMonthlyPdf(report) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: "A4", margin: 36 });
+      const chunks = [];
+      doc.on("data", (c) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.registerFont("DejaVu", PDF_FONT);
+      doc.font("DejaVu");
+
+      doc.fontSize(18).text(`Айлық жалақы есебі — ${report.month}`);
+      doc.moveDown(0.3);
+      doc.fontSize(9).fillColor("#555")
+        .text(`Құрылған: ${new Date().toLocaleString("ru-RU", { timeZone: process.env.BOT_TIMEZONE || "Asia/Tashkent" })}`);
+      doc.fillColor("#000").moveDown(0.8);
+
+      const cols = [
+        { title: "Аты-жөні", width: 150, align: "left" },
+        { title: "Күн", width: 48, align: "right" },
+        { title: "Сағат", width: 54, align: "right" },
+        { title: "Айлық", width: 78, align: "right" },
+        { title: "Аванс", width: 70, align: "right" },
+        { title: "Таза қолға", width: 84, align: "right" },
+      ];
+      const startX = doc.page.margins.left;
+      const rowHeight = 20;
+      const tableWidth = cols.reduce((s, c) => s + c.width, 0);
+
+      function drawRow(y, values, { header = false, total = false } = {}) {
+        let x = startX;
+        if (header || total) {
+          doc.rect(x, y - 3, tableWidth, rowHeight).fill(header ? "#0b1b5f" : "#eef2f8");
+        }
+        doc.fontSize(9).fillColor(header ? "#ffffff" : "#07122b");
+        for (let i = 0; i < cols.length; i += 1) {
+          doc.text(String(values[i] ?? ""), x + 4, y, { width: cols[i].width - 8, align: cols[i].align, lineBreak: false });
+          x += cols[i].width;
+        }
+        doc.fillColor("#000");
+      }
+
+      let y = doc.y;
+      drawRow(y, cols.map((c) => c.title), { header: true });
+      y += rowHeight;
+      for (const row of report.rows) {
+        if (y > doc.page.height - doc.page.margins.bottom - rowHeight * 2) {
+          doc.addPage();
+          y = doc.page.margins.top;
+          drawRow(y, cols.map((c) => c.title), { header: true });
+          y += rowHeight;
+        }
+        drawRow(y, [row.name, row.workedEquivalentDays, row.totalHours, pdfMoney(row.monthlySalary), pdfMoney(row.advanceTotal), pdfMoney(row.net)]);
+        y += rowHeight;
+      }
+      const t = report.totals || {};
+      drawRow(y, ["Барлығы", t.workedEquivalentDays ?? "", t.totalHours ?? "", pdfMoney(t.monthlySalary), pdfMoney(t.advanceTotal), pdfMoney(t.net)], { total: true });
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
 
 function todayInTashkent() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -54,7 +127,15 @@ async function monthlyReport(req, res) {
   totals.workedEquivalentDays = Math.round(totals.workedEquivalentDays * 100) / 100;
   totals.totalHours = Math.round(totals.totalHours * 10) / 10;
 
-  res.status(200).json({ month, rows, totals });
+  const report = { month, rows, totals };
+  if (String(req.query.format || "").toLowerCase() === "pdf") {
+    const pdf = await buildMonthlyPdf(report);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="jalaqy-esep-${month}.pdf"`);
+    res.status(200).send(pdf);
+    return;
+  }
+  res.status(200).json(report);
 }
 
 export default async function handler(req, res) {
