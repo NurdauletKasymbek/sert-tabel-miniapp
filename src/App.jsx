@@ -745,7 +745,7 @@ function App() {
                 <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/55">
                   {adminRoleLabel || (isMonitor ? "Бақылаушы" : "Әкімші")}
                 </span>
-                <span className="truncate text-base font-black leading-tight text-white">
+                <span className="line-clamp-2 break-words text-sm font-black leading-tight text-white">
                   {adminName || tgFirstName || "Әкімші"}
                 </span>
               </div>
