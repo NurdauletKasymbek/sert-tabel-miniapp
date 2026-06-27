@@ -443,9 +443,11 @@ export async function loadStore() {
     newLabel: row[6],
   }));
   const admins = adminRows.filter((row) => row[1]).map((row) => {
-    const roleText = String(row[2] || "").trim().toLowerCase();
+    const roleLabel = String(row[2] || "").trim();
+    const roleText = roleLabel.toLowerCase();
+    // Қол жеткізу: мәтінде «бақыл»/monitor болса — bақылаушы, әйтпесе толық әкімші.
     const role = roleText.includes("бақыл") || roleText.includes("monitor") || roleText.includes("монитор") ? "monitor" : "admin";
-    return { name: String(row[0] || "").trim(), telegramId: String(row[1]).trim(), role };
+    return { name: String(row[0] || "").trim(), telegramId: String(row[1]).trim(), role, roleLabel };
   });
   const data = { employees, attendance, advances, admins, history };
   storeCache = { at: Date.now(), data };

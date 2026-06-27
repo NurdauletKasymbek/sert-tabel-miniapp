@@ -185,6 +185,7 @@ function App() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [isMonitor, setIsMonitor] = useState(false);
   const [adminName, setAdminName] = useState("");
+  const [adminRoleLabel, setAdminRoleLabel] = useState("");
   const [qrEmployee, setQrEmployee] = useState(null);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -272,6 +273,7 @@ function App() {
         if (me.isAdmin) {
           setIsMonitor(me.role === "monitor");
           setAdminName(me.name || "");
+          setAdminRoleLabel(me.roleLabel || "");
           setAccessState("admin");
           loadState();
         } else if (me.employee) {
@@ -741,7 +743,7 @@ function App() {
               <Avatar photoUrl={tgPhotoUrl} name={adminName || tgFirstName || "Әкімші"} size={42} />
               <div className="flex min-w-0 flex-col">
                 <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/55">
-                  {isMonitor ? "Бақылаушы" : "Әкімші"}
+                  {adminRoleLabel || (isMonitor ? "Бақылаушы" : "Әкімші")}
                 </span>
                 <span className="truncate text-base font-black leading-tight text-white">
                   {adminName || tgFirstName || "Әкімші"}

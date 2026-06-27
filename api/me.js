@@ -192,7 +192,8 @@ export default async function handler(req, res) {
       // Толық әкімші немесе бақылаушы — әкімші кабинетіне кіреді (рөл бойынша
       // жалақы/аванс жасырылады). Аты «Әкімшілер» парағынан алынады.
       const account = (store.admins || []).find((a) => a.telegramId === userId);
-      res.status(200).json({ isAdmin: true, role, name: account?.name || "", userId, employee: null });
+      const roleLabel = account?.roleLabel || (role === "monitor" ? "Бақылаушы" : "Әкімші");
+      res.status(200).json({ isAdmin: true, role, name: account?.name || "", roleLabel, userId, employee: null });
       return;
     }
 
