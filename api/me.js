@@ -131,7 +131,7 @@ async function monthlyReport(req, res) {
   if (String(req.query.format || "").toLowerCase() === "pdf") {
     const pdf = await buildMonthlyPdf(report);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="jalaqy-esep-${month}.pdf"`);
+    res.setHeader("Content-Disposition", `attachment; filename="jalaqy-esep-${month}.pdf"`);
     res.status(200).send(pdf);
     return;
   }
