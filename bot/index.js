@@ -38,7 +38,6 @@ const LEGACY_SHEETS = {
 const HIDDEN_SHEETS = new Set([SHEETS.history, "Daily Control", "Summary", "Reports", "Employees", "Attendance", "History"]);
 const GOOGLE_CLIENT_EMAIL = cleanGoogleEmail(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) || GOOGLE_SERVICE_ACCOUNT?.client_email || "";
 const GOOGLE_PRIVATE_KEY = (cleanGooglePrivateKey(process.env.GOOGLE_PRIVATE_KEY) || GOOGLE_SERVICE_ACCOUNT?.private_key || "").replaceAll("\\n", "\n");
-const AUTO_SYNC_SHEETS = process.env.AUTO_SYNC_SHEETS === "true";
 const PHONELESS_REMINDER_TIME = /^\d{2}:\d{2}$/.test(process.env.PHONELESS_REMINDER_TIME || "")
   ? process.env.PHONELESS_REMINDER_TIME
   : "09:30";
@@ -128,14 +127,13 @@ function normalizeData(data) {
   return data;
 }
 
-async function saveData(data, { syncSheets = AUTO_SYNC_SHEETS } = {}) {
+async function saveData(data) {
+  // Ескі толық Google Sheets синхрондауы алынды (ол жаңа бағандарды өшіретін).
+  // Қатысу мен қызметкер деректері Mini App API арқылы Sheets-ке жазылады.
   await mkdir(__dirname, { recursive: true });
   const tempPath = `${DATA_PATH}.tmp`;
   await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
   await rename(tempPath, DATA_PATH);
-  if (syncSheets && sheetsConfigured()) {
-    await syncGoogleSheets(data);
-  }
 }
 
 function isAdmin(userId) {
@@ -398,7 +396,6 @@ function menuButtons() {
   rows.push(
     [{ text: "Қызметкерлер", callback_data: "employees" }, { text: "Табель", callback_data: `day:${today()}` }],
     [{ text: "Календарь", callback_data: `cal:${currentMonth()}` }, { text: "Есеп", callback_data: `report:${currentMonth()}` }],
-    [{ text: "Google Sheets", callback_data: "sheets" }],
   );
   return inlineKeyboard(rows);
 }
@@ -577,7 +574,7 @@ function reportButtons(month) {
       { text: month, callback_data: "noop" },
       { text: ">", callback_data: `report:${addMonths(month, 1)}` },
     ],
-    [{ text: "CSV алу", callback_data: `export:${month}` }, { text: "Google Sheets", callback_data: "sheets" }],
+    [{ text: "CSV алу", callback_data: `export:${month}` }],
     [{ text: "Календарь", callback_data: `cal:${month}` }, { text: "Артқа", callback_data: "menu" }],
   ]);
 }
@@ -636,7 +633,6 @@ async function handlePendingText(message, data, session, text) {
         reply_markup: inlineKeyboard([
           [{ text: "Келесі қызметкер қосу", callback_data: "employee:add" }],
           [{ text: "Қызметкерлер тізімі", callback_data: "employees" }],
-          [{ text: "Google Sheets-ке жазу", callback_data: "sheets" }],
         ]),
       },
     );
@@ -729,16 +725,6 @@ async function handleAdminCommand(message, data, command, args) {
 
   if (command === "календарь") {
     await sendMessage(chatId, calendarText(data, currentMonth()), { reply_markup: calendarButtons(currentMonth()) });
-    return true;
-  }
-
-  if (command === "google sheets") {
-    await handleSheets(chatId, data);
-    return true;
-  }
-
-  if (command === "/sync" || command === "синхрондау") {
-    await handleSheets(chatId, data);
     return true;
   }
 
@@ -1646,20 +1632,12 @@ async function handleCallback(callback) {
       setAttendance(data, date, employeeId, status);
       await saveData(data);
       await answerCallback(callback.id, `${data.employees[employeeId].name}: ${date} - ${STATUSES[status].label}`);
-      if (sheetsConfigured()) {
-        try {
-          await syncGoogleSheets(data);
-        } catch (error) {
-          console.error(`Google Sheets auto sync failed: ${error.message}`);
-        }
-      }
       await sendMessage(
         chatId,
         `Белгі қойылды: <b>${escapeHtml(data.employees[employeeId].name)}</b>\nКүн: <b>${date}</b>\nСтатус: <b>${STATUSES[status].label}</b>`,
         {
           reply_markup: inlineKeyboard([
             [{ text: "Келесі қызметкер", callback_data: "employees" }],
-            [{ text: "Google Sheets-ке жазу", callback_data: "sheets" }],
           ]),
         },
       );
@@ -1695,33 +1673,6 @@ async function handleCallback(callback) {
     return;
   }
 
-  if (dataValue === "sheets") {
-    await handleSheets(chatId, data);
-  }
-
-}
-
-async function handleSheets(chatId, data) {
-  if (!sheetsConfigured()) {
-    await sendMessage(chatId, [
-      "<b>Google Sheets әлі қосылмаған.</b>",
-      "",
-      "bot/.env ішіне мыналарды толтырыңыз:",
-      "GOOGLE_SHEET_ID",
-      "GOOGLE_SERVICE_ACCOUNT_EMAIL",
-      "GOOGLE_PRIVATE_KEY",
-      "",
-      "Сосын Google Sheet файлын service account email-іне Editor ретінде share етіңіз.",
-    ].join("\n"));
-    return;
-  }
-
-  try {
-    await syncGoogleSheets(data);
-    await sendMessage(chatId, "Google Sheets синхрондалды.");
-  } catch (error) {
-    await sendMessage(chatId, `Google Sheets қатесі: ${escapeHtml(error.message)}`);
-  }
 }
 
 function sheetsConfigured() {
@@ -1882,90 +1833,6 @@ async function appendEmployeeToGoogleSheets(employeeId, employee) {
     await appendSheetRows(sheetRange(SHEETS.employees, "A:F"), [row]);
   }
   await appendSheetRows(sheetRange(SHEETS.history, "A:G"), [[new Date().toISOString(), "Қызметкер қосылды", employeeId, employee.name, "", "", "Белсенді"]]);
-}
-
-async function syncGoogleSheets(data) {
-  await ensureSheets();
-  const employees = [
-    ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні"],
-    ...allEmployees(data).map(([id, employee]) => [
-      id,
-      employee.name,
-      employee.role || "Қызметкер",
-      employee.status === "archived" ? "Архив" : "Белсенді",
-      employee.createdAt || "",
-      employee.archivedAt || "",
-    ]),
-  ];
-
-  const attendance = [["Күн", "Қызметкер ID", "Аты-жөні", "Рөлі", "Белгі", "Уақыт", "Жаңартылды"]];
-  for (const date of Object.keys(data.attendance).sort()) {
-    for (const [employeeId, record] of Object.entries(data.attendance[date])) {
-      const employee = data.employees[employeeId];
-      attendance.push([
-        date,
-        employeeId,
-        employee?.name || "",
-        employee?.role || "",
-        STATUSES[record.status]?.label || record.status,
-        record.time || "",
-        record.updatedAt || "",
-      ]);
-    }
-  }
-
-  const summary = [["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген"]];
-  const months = new Set(Object.keys(data.attendance).map((date) => date.slice(0, 7)));
-  months.add(currentMonth());
-  for (const month of [...months].sort()) {
-    for (const [id, employee] of allEmployees(data)) {
-      const counts = { present: 0, half: 0, absent: 0, dayoff: 0 };
-      for (let day = 1; day <= daysInMonth(month); day += 1) {
-        const date = `${month}-${String(day).padStart(2, "0")}`;
-        const status = getAttendance(data, date, id)?.status;
-        if (counts[status] !== undefined) counts[status] += 1;
-      }
-      summary.push([
-        month,
-        id,
-        employee.name,
-        employee.role || "Қызметкер",
-        counts.present,
-        counts.half,
-        counts.absent,
-        counts.dayoff,
-        counts.present + counts.half + counts.absent + counts.dayoff,
-      ]);
-    }
-  }
-
-  const history = [
-    ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"],
-    ...(data.history || []).map((row) => [
-      row.at,
-      row.action,
-      row.employeeId,
-      row.name,
-      row.date,
-      row.oldLabel || "",
-      row.newLabel || "",
-    ]),
-  ];
-
-  await updateSheetRange(sheetRange(SHEETS.employees, "A1:F1000"), employees);
-  await updateSheetRange(sheetRange(SHEETS.attendance, "A1:G5000"), attendance);
-  await updateSheetRange(sheetRange(SHEETS.reports, "A1:I2000"), summary);
-  await updateSheetRange(sheetRange(SHEETS.history, "A1:G5000"), history);
-  data.sheetSync = {
-    at: new Date().toISOString(),
-    rows: {
-      employees: employees.length - 1,
-      attendance: attendance.length - 1,
-      summary: summary.length - 1,
-      history: history.length - 1,
-    },
-  };
-  await saveData(data, { syncSheets: false });
 }
 
 function localDateParts(date = new Date()) {
