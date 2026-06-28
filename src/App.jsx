@@ -1948,7 +1948,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
     <main className={cx("min-h-screen", isDark ? "bg-[#04060d]" : "bg-[#07101f]")}>
       <section className={cx("app-shell mx-auto flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden shadow-2xl md:my-5 md:min-h-[860px] md:rounded-[34px]", isDark ? "bg-[#0a1126]" : "bg-[#f5f7fb]")}>
         <header
-          className="relative overflow-hidden px-5 pb-5 pt-5 text-white"
+          className="relative overflow-hidden px-5 pb-4 pt-4 text-white"
           style={{
             background: "linear-gradient(135deg, #0b1b5f 0%, #0d2070 50%, #06104a 100%)",
           }}
@@ -1985,10 +1985,10 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
             </div>
           </div>
 
-          <div className="relative mt-5 flex items-center justify-between rounded-[22px] bg-white/12 px-4 py-3 backdrop-blur">
+          <div className="relative mt-3 flex items-center justify-between rounded-[18px] bg-white/12 px-4 py-2 backdrop-blur">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Уақыт</p>
-              <p className="text-xl font-black tabular-nums text-white">
+              <p className="text-lg font-black tabular-nums text-white">
                 {now.toLocaleTimeString("kk-KZ", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </p>
             </div>
@@ -1999,7 +1999,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
           </div>
         </header>
 
-        <section className="flex-1 px-4 py-5">
+        <section className="flex-1 px-4 py-4">
           <div className={cx("rounded-[26px] p-5 text-center shadow-xl", isDark ? "bg-white/5" : "bg-white")}>
             {stage === "idle" && actionError && (
               <ActionErrorPanel isDark={isDark} error={actionError} onRetry={() => setActionError(null)} />
