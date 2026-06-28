@@ -1816,8 +1816,10 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
     if (pdfBusy) return;
     haptic("light");
     setPdfBusy(true);
+    // Серверден келген нақты ID-ді қолданамыз (қызметкер танылған дәл сол ID).
+    const myId = data.userId || data.employee?.telegramId || userId;
     try {
-      await api(`/api/me?report=my&format=pdf&userId=${encodeURIComponent(userId)}&send=${encodeURIComponent(userId)}&month=${month}`);
+      await api(`/api/me?report=my&format=pdf&userId=${encodeURIComponent(myId)}&send=${encodeURIComponent(myId)}&month=${month}`);
       haptic("success");
       setMessage({ type: "success", text: "📄 Жалақы PDF Telegram чатыңызға жіберілді" });
       setMessageOpen(true);
