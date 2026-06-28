@@ -1817,7 +1817,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
     haptic("light");
     setPdfBusy(true);
     try {
-      await api(`/api/me?report=my&format=pdf&send=${encodeURIComponent(userId)}&month=${month}`);
+      await api(`/api/me?report=my&format=pdf&userId=${encodeURIComponent(userId)}&send=${encodeURIComponent(userId)}&month=${month}`);
       haptic("success");
       setMessage({ type: "success", text: "📄 Жалақы PDF Telegram чатыңызға жіберілді" });
       setMessageOpen(true);

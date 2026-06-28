@@ -145,7 +145,8 @@ function buildPersonalPdf(employee, month, salary) {
 
 // Жұмысшының өз жалақы PDF-і: /api/me?report=my&format=pdf&userId=..&send=..
 async function personalReport(req, res) {
-  const userId = String(req.query.userId || "").trim();
+  // userId болмаса, send-ті қолданамыз (frontend бірін ғана жіберуі мүмкін).
+  const userId = String(req.query.userId || req.query.send || "").trim();
   if (!userId) {
     res.status(400).json({ error: "userId керек" });
     return;
