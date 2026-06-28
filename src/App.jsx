@@ -454,16 +454,19 @@ function App() {
   }
 
   async function markBusinessTrip() {
-    if (!selected || !tripStart || !tripEnd) return;
+    if (!selected || !tripStart) return;
+    const endDate = tripEnd || tripStart;
     haptic("medium");
     try {
       const next = await api("/api/attendance", {
         method: "POST",
-        body: JSON.stringify({ action: "range", employeeId: selected.id, status: "business_trip", startDate: tripStart, endDate: tripEnd }),
+        body: JSON.stringify({ action: "range", employeeId: selected.id, status: "business_trip", startDate: tripStart, endDate }),
       });
       setState(next);
       haptic("success");
-      showToast("success", `${selected.name}: командировка белгіленді (${tripStart} … ${tripEnd}).`);
+      showToast("success", tripStart === endDate
+        ? `${selected.name}: командировка белгіленді (${tripStart}).`
+        : `${selected.name}: командировка белгіленді (${tripStart} … ${endDate}).`);
       setTripStart("");
       setTripEnd("");
     } catch (err) {
@@ -1065,10 +1068,11 @@ function App() {
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <input type="date" value={tripStart} onChange={(e) => setTripStart(e.target.value)} aria-label="Бастау күні"
                   className={cx("min-w-0 rounded-[12px] px-2.5 py-2 text-sm font-bold outline-none ring-1", isDark ? "bg-[#0a1126] text-white ring-white/10" : "bg-white text-[#07122b] ring-[#e3e9f3]")} />
-                <input type="date" value={tripEnd} onChange={(e) => setTripEnd(e.target.value)} aria-label="Аяқтау күні"
+                <input type="date" value={tripEnd} onChange={(e) => setTripEnd(e.target.value)} aria-label="Аяқтау күні (бос болса — 1 күн)"
                   className={cx("min-w-0 rounded-[12px] px-2.5 py-2 text-sm font-bold outline-none ring-1", isDark ? "bg-[#0a1126] text-white ring-white/10" : "bg-white text-[#07122b] ring-[#e3e9f3]")} />
               </div>
-              <motion.button whileTap={{ scale: 0.97 }} onClick={markBusinessTrip} disabled={!selected || !tripStart || !tripEnd}
+              <p className={cx("mt-1.5 text-[10px] font-bold", isDark ? "text-indigo-300/70" : "text-indigo-500")}>Аяқтау күнін бос қалдырсаңыз — тек 1 күн белгіленеді.</p>
+              <motion.button whileTap={{ scale: 0.97 }} onClick={markBusinessTrip} disabled={!selected || !tripStart}
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] bg-indigo-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">
                 <Plane className="size-4" /> Командировка деп белгілеу
               </motion.button>
@@ -1904,6 +1908,14 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const checkInTime = todayRow?.checkInTime || "";
   const checkOutTime = todayRow?.checkOutTime || "";
   const stage = checkOutTime ? "done" : checkInTime ? "checked-in" : "idle";
+  // Әкімші белгілеген статус (КІРУ-сіз) — жұмысшыға баннер ретінде көрсетіледі.
+  const adminStatusLabel = (!checkInTime && !checkOutTime && ["Командировка", "Демалыс", "Жоқ", "Ауырып қалды"].includes(todayRow?.label || "")) ? todayRow.label : "";
+  const adminStatusInfo = {
+    "Командировка": { Icon: Plane, cls: isDark ? "bg-indigo-500/15 text-indigo-300" : "bg-indigo-100 text-indigo-600", note: "Сіз командировкадасыз. КІРУ қажет емес — бұл күн толық есептеледі." },
+    "Демалыс": { Icon: Umbrella, cls: isDark ? "bg-blue-500/15 text-blue-300" : "bg-blue-100 text-blue-600", note: "Бүгін демалыс. КІРУ қажет емес." },
+    "Жоқ": { Icon: CircleMinus, cls: isDark ? "bg-rose-500/15 text-rose-300" : "bg-rose-100 text-rose-600", note: "Бүгін «жұмыста жоқ» деп белгіленген." },
+    "Ауырып қалды": { Icon: AlertTriangle, cls: isDark ? "bg-amber-500/15 text-amber-300" : "bg-amber-100 text-amber-600", note: "«Ауырып қалды» деп белгіленген." },
+  }[adminStatusLabel];
 
   async function performAction(action) {
     if (busy) return;
@@ -2053,10 +2065,19 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
 
         <section className="flex-1 px-4 py-4">
           <div className={cx("rounded-[26px] p-5 text-center shadow-xl", isDark ? "bg-white/5" : "bg-white")}>
-            {stage === "idle" && actionError && (
+            {adminStatusLabel && adminStatusInfo && (
+              <>
+                <div className={cx("mx-auto grid size-16 place-items-center rounded-full", adminStatusInfo.cls)}>
+                  <adminStatusInfo.Icon className="size-8" />
+                </div>
+                <p className={cx("mt-3 text-lg font-black", isDark ? "text-white" : "text-[#07122b]")}>Бүгін: {adminStatusLabel}</p>
+                <p className={cx("mt-1.5 text-xs font-bold leading-relaxed", isDark ? "text-slate-400" : "text-[#7a86a0]")}>{adminStatusInfo.note}</p>
+              </>
+            )}
+            {!adminStatusLabel && stage === "idle" && actionError && (
               <ActionErrorPanel isDark={isDark} error={actionError} onRetry={() => setActionError(null)} />
             )}
-            {stage === "idle" && !actionError && (
+            {!adminStatusLabel && stage === "idle" && !actionError && (
               <>
                 <p className={cx("text-xs font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
                   Бүгін кіру белгісі әлі жоқ
