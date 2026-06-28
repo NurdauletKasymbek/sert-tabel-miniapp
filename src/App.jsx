@@ -1852,6 +1852,25 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const [notifOpen, setNotifOpen] = useState(false);
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
   const [actionError, setActionError] = useState(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function downloadMyPdf() {
+    if (pdfBusy) return;
+    haptic("light");
+    setPdfBusy(true);
+    try {
+      await api(`/api/me?report=my&format=pdf&send=${encodeURIComponent(userId)}&month=${month}`);
+      haptic("success");
+      setMessage({ type: "success", text: "📄 Жалақы PDF Telegram чатыңызға жіберілді" });
+      setMessageOpen(true);
+    } catch (err) {
+      haptic("error");
+      setMessage({ type: "error", text: err.message || "PDF жіберілмеді" });
+      setMessageOpen(true);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   const minutesUntilEnd = useMemo(() => {
     const formatted = new Intl.DateTimeFormat("en-US", {
@@ -2186,6 +2205,15 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
                     <span className="text-amber-500">− {(salary.advanceTotal || 0).toLocaleString("kk-KZ")} ₸</span>
                   </div>
                 </div>
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={downloadMyPdf}
+                  disabled={pdfBusy}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-[16px] bg-[#0b1b5f] px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+                >
+                  <FileDown className={cx("size-4", pdfBusy && "animate-pulse")} />
+                  {pdfBusy ? "Жіберілуде..." : "Жалақы PDF алу"}
+                </motion.button>
               </div>
             </div>
           )}

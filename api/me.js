@@ -86,6 +86,96 @@ function currentMonth() {
   return todayInTashkent().slice(0, 7);
 }
 
+// Жұмысшының жеке жалақы түбіртегі (PDF) — өзіне ғана.
+function buildPersonalPdf(employee, month, salary) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: "A4", margin: 48 });
+      const chunks = [];
+      doc.on("data", (c) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.registerFont("DejaVu", PDF_FONT);
+      doc.font("DejaVu");
+
+      const left = doc.page.margins.left;
+      const width = doc.page.width - left - doc.page.margins.right;
+
+      doc.fontSize(20).fillColor("#0b1b5f").text("Жалақы түбіртегі", { align: "center" });
+      doc.fontSize(11).fillColor("#666").text(month, { align: "center" });
+      doc.fillColor("#000").moveDown(1.4);
+
+      doc.fontSize(14).fillColor("#07122b").text(employee.name);
+      doc.fontSize(10).fillColor("#666").text(employee.role || "Қызметкер");
+      doc.fillColor("#000").moveDown(1);
+
+      const row = (label, value, opts = {}) => {
+        const y = doc.y;
+        doc.fontSize(opts.big ? 14 : 11).fillColor(opts.big ? "#0b1b5f" : "#555");
+        doc.text(label, left, y, { width: width * 0.6, lineBreak: false });
+        doc.fillColor(opts.color || (opts.big ? "#0b1b5f" : "#07122b"));
+        doc.text(value, left, y, { width, align: "right", lineBreak: false });
+        doc.fillColor("#000").moveDown(opts.big ? 0.7 : 0.55);
+      };
+      const divider = () => {
+        const y = doc.y + 2;
+        doc.moveTo(left, y).lineTo(left + width, y).lineWidth(0.6).strokeColor("#dfe5ef").stroke();
+        doc.moveDown(0.6);
+      };
+
+      row("Істелген күн (эквивалент)", `${salary.workedEquivalentDays} күн`);
+      row("Жалпы сағат", `${salary.totalHours} сағат`);
+      divider();
+      row("Бекітілген айлық", pdfMoney(salary.monthlySalary));
+      row("Есептелген", pdfMoney(salary.earned));
+      row("Аванс", `− ${pdfMoney(salary.advanceTotal)}`, { color: "#c0392b" });
+      divider();
+      row("Таза қолға", pdfMoney(salary.net), { big: true });
+
+      doc.moveDown(2);
+      doc.fontSize(8).fillColor("#999")
+        .text(`Құрылған: ${new Date().toLocaleString("ru-RU", { timeZone: process.env.BOT_TIMEZONE || "Asia/Tashkent" })}`, { align: "center" });
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Жұмысшының өз жалақы PDF-і: /api/me?report=my&format=pdf&userId=..&send=..
+async function personalReport(req, res) {
+  const userId = String(req.query.userId || "").trim();
+  if (!userId) {
+    res.status(400).json({ error: "userId керек" });
+    return;
+  }
+  const store = await loadStore();
+  const employee = store.employees.find((e) => String(e.telegramId || "").trim() === userId);
+  if (!employee) {
+    res.status(404).json({ error: "Қызметкер табылмады" });
+    return;
+  }
+  const month = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : currentMonth();
+  const salary = salaryReport(store, employee.id, month);
+  const pdf = await buildPersonalPdf(employee, month, salary);
+
+  const sendTo = String(req.query.send || "").trim();
+  if (sendTo) {
+    // Тек өзіне жіберуге рұқсат.
+    if (sendTo !== userId) {
+      res.status(403).json({ error: "Бұл әрекетке рұқсатыңыз жоқ" });
+      return;
+    }
+    await sendPdfToTelegram(userId, `jalaqy-${month}.pdf`, pdf, `📄 ${month} жалақы түбіртегі`);
+    res.status(200).json({ ok: true });
+    return;
+  }
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="jalaqy-${month}.pdf"`);
+  res.status(200).send(pdf);
+}
+
 // Айлық жалақы есептемесі (барлық белсенді қызметкер) — бот PDF жасау үшін.
 // Бөлек serverless функция болмас үшін осы /api/me ішінде report=monthly режимі.
 async function monthlyReport(req, res) {
@@ -166,6 +256,10 @@ export default async function handler(req, res) {
   try {
     if (req.query.report === "monthly") {
       await monthlyReport(req, res);
+      return;
+    }
+    if (req.query.report === "my") {
+      await personalReport(req, res);
       return;
     }
     const userId = String(req.query.userId || "").trim();
