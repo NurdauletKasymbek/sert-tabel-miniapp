@@ -1957,6 +1957,27 @@ async function configureBotMenu() {
   } catch (error) {
     console.error(`setMyCommands failed: ${error.message}`);
   }
+  // START экранындағы сипаттама («Бұл бот не істей алады?»). Фотоны @BotFather
+  // арқылы қолмен қою керек (API-да description суретіне әдіс жоқ).
+  try {
+    await telegram("setMyDescription", {
+      description:
+        "Sert компаниясының табель және жалақы боты.\n\n" +
+        "📍 Қызметкерлер QR арқылы жұмысқа КІРУ/ШЫҒУ белгілейді\n" +
+        "🕒 Геолокация мен нақты сағат есепке алынады\n" +
+        "💵 Ай соңында жалақы автоматты есептеледі\n\n" +
+        "Бастау үшін «Бастау» батырмасын басыңыз.",
+    });
+  } catch (error) {
+    console.error(`setMyDescription failed: ${error.message}`);
+  }
+  try {
+    await telegram("setMyShortDescription", {
+      short_description: "Sert табель боты — қатысу, КІРУ/ШЫҒУ, жалақы есебі. Барлығы Mini App ішінде.",
+    });
+  } catch (error) {
+    console.error(`setMyShortDescription failed: ${error.message}`);
+  }
   if (!MINI_APP_URL) return;
   for (const adminId of ADMIN_IDS) {
     try {
