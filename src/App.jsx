@@ -179,7 +179,6 @@ function App() {
   const [addError, setAddError] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [reportState, setReportState] = useState("ready");
   const [theme, setTheme] = useState("light");
   const [pendingStatus, setPendingStatus] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
@@ -190,17 +189,12 @@ function App() {
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [manualCheckoutOpen, setManualCheckoutOpen] = useState(false);
-  const [now, setNow] = useState(() => new Date());
   const [accessState, setAccessState] = useState("checking");
   const [workerData, setWorkerData] = useState(null);
   const [tgUserId, setTgUserId] = useState("");
   const [tgPhotoUrl, setTgPhotoUrl] = useState("");
   const [tgFirstName, setTgFirstName] = useState("");
 
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
   const employeeListRef = useRef(null);
   const swipeStartRef = useRef(null);
   const toastTimers = useRef(new Map());
@@ -560,25 +554,6 @@ function App() {
       haptic("error");
       showToast("error", err.message);
       setSyncState("ready");
-    }
-  }
-
-  async function sendManagerReport() {
-    haptic("medium");
-    setReportState("sending");
-    try {
-      const result = await api("/api/report-manager", {
-        method: "POST",
-        body: JSON.stringify({ date: selectedDate }),
-      });
-      setReportState("sent");
-      haptic("success");
-      showToast("success", `Есеп басшылыққа жіберілді: ${result.sentTo} адам.`);
-      setTimeout(() => setReportState("ready"), 2400);
-    } catch (err) {
-      haptic("error");
-      showToast("error", err.message);
-      setReportState("ready");
     }
   }
 
@@ -1065,10 +1040,6 @@ function App() {
             >
               🚪 Қолмен шығу қою
             </motion.button>
-            <motion.button whileTap={{ scale: 0.97 }} onClick={sendManagerReport} disabled={reportState === "sending"} className="mt-2 flex w-full items-center justify-center gap-2 rounded-[20px] bg-gradient-to-br from-[#112b88] to-[#07133a] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-60">
-              {reportState === "sending" ? <Clock3 className="size-5 animate-spin" /> : reportState === "sent" ? <Check className="size-5" /> : <Sparkles className="size-5" />}
-              Басшылыққа есеп беру
-            </motion.button>
           </section>
         </section>
       </section>
@@ -1263,14 +1234,12 @@ function InlineError({ text }) {
 function StatusPill({ isDark, meta, value }) {
   const Icon = meta.Icon;
   return (
-    <div className={cx("rounded-2xl px-3 py-3 ring-1", isDark ? meta.chipDark : meta.chip)}>
-      <div className="flex items-center justify-between gap-2">
-        <Icon className="size-4 shrink-0" />
-        <motion.span key={value} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-xl font-black">
-          {value}
-        </motion.span>
-      </div>
-      <p className="mt-1 text-xs font-black">{meta.label}</p>
+    <div className={cx("flex items-center gap-2 rounded-2xl px-3 py-2.5 ring-1", isDark ? meta.chipDark : meta.chip)}>
+      <Icon className="size-4 shrink-0" />
+      <p className="truncate text-xs font-black">{meta.label}</p>
+      <motion.span key={value} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="ml-auto text-lg font-black">
+        {value}
+      </motion.span>
     </div>
   );
 }
@@ -1527,17 +1496,6 @@ function QrView({ isDark, employee, botUsername, onCopy, onScan }) {
         <br /><br />
         Немесе QR-ды басып, осы Mini App ішінде басқа қызметкердің QR-ын камерамен сканерлей аласыз.
       </div>
-    </div>
-  );
-}
-
-function LiveClock({ now }) {
-  const time = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const date = now.toLocaleDateString("kk-KZ", { day: "numeric", month: "long", weekday: "short" });
-  return (
-    <div className="rounded-2xl border border-white/25 bg-white/12 px-3 py-1.5 text-center backdrop-blur">
-      <p className="font-mono text-sm font-black leading-none tracking-tight text-white tabular-nums">{time}</p>
-      <p className="mt-0.5 text-[9px] font-bold uppercase leading-none tracking-[0.14em] text-white/70">{date}</p>
     </div>
   );
 }
