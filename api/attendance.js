@@ -224,6 +224,45 @@ export default async function handler(req, res) {
     const employeeId = String(body.employeeId || "");
     const employee = store.employees.find((item) => item.id === employeeId);
 
+    // Аралықпен белгілеу (мыс. командировка) — бір қызметкерге бірнеше күн бірден.
+    if (action === "range") {
+      const status = String(body.status || "");
+      const startDate = String(body.startDate || "");
+      const endDate = String(body.endDate || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || !employee || !STATUSES[status]) {
+        res.status(400).json({ error: "Күн аралығы, қызметкер немесе статус қате" });
+        return;
+      }
+      const start = new Date(`${startDate}T00:00:00Z`);
+      const end = new Date(`${endDate}T00:00:00Z`);
+      if (end < start) {
+        res.status(400).json({ error: "Аяқтау күні бастау күнінен кіші болмауы керек" });
+        return;
+      }
+      const dates = [];
+      for (let d = new Date(start); d <= end && dates.length < 90; d.setUTCDate(d.getUTCDate() + 1)) {
+        dates.push(d.toISOString().slice(0, 10));
+      }
+      const label = statusToLabel(status);
+      const role = employee.role || "Қызметкер";
+      const stamp = new Date().toISOString();
+      for (const d of dates) {
+        store.attendance = store.attendance.filter((row) => !(row.date === d && row.employeeId === employeeId));
+        store.attendance.push({
+          date: d, employeeId, name: employee.name, role, label, time: "",
+          updatedAt: stamp, checkInTime: "", checkOutTime: "", lateMinutes: 0, earlyMinutes: 0,
+        });
+      }
+      await saveAttendance(store.attendance);
+      await appendHistory([{
+        at: stamp, action: "Аралық белгі", employeeId, name: employee.name,
+        date: `${startDate}…${endDate}`, oldLabel: "", newLabel: `${label} (${dates.length} күн)`,
+      }]);
+      await rebuildSummary(store);
+      res.status(200).json(publicState(store));
+      return;
+    }
+
     if (action === "checkout") {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !employee) {
         res.status(400).json({ error: "Күн немесе қызметкер ID қате" });

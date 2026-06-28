@@ -53,6 +53,7 @@ const STATUSES = {
   present: { label: "Жұмыста", short: "Ж", salaryFactor: 1 },
   absent: { label: "Жоқ", short: "Жоқ", salaryFactor: 0 },
   half: { label: "Жарты күн", short: "0.5", salaryFactor: 0.5 },
+  business_trip: { label: "Командировка", short: "К", salaryFactor: 1 },
   sick: { label: "Ауырып қалды", short: "А", salaryFactor: 0 },
   dayoff: { label: "Демалыс", short: "Д", salaryFactor: 0 },
 };

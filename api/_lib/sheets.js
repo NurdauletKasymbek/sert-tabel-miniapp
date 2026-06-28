@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 const STATUSES = {
   present: { label: "Жұмыста" },
   half: { label: "Жарты күн" },
+  business_trip: { label: "Командировка" },
   absent: { label: "Жоқ" },
   dayoff: { label: "Демалыс" },
 };
@@ -508,7 +509,7 @@ export function publicState(store) {
 }
 
 export function dayControl(attendanceMap, employees, date) {
-  const counts = { present: 0, half: 0, absent: 0, dayoff: 0, unmarked: 0 };
+  const counts = { present: 0, half: 0, business_trip: 0, absent: 0, dayoff: 0, unmarked: 0 };
   const records = attendanceMap[date] || {};
   for (const employee of employees) {
     const status = records[employee.id]?.status;
@@ -523,7 +524,7 @@ export function statusCounts(attendanceMap, employeeId, month) {
 }
 
 export function statusCountsUntil(attendanceMap, employeeId, month, untilDate = "") {
-  const counts = { present: 0, half: 0, absent: 0, dayoff: 0 };
+  const counts = { present: 0, half: 0, business_trip: 0, absent: 0, dayoff: 0 };
   for (const [date, records] of Object.entries(attendanceMap)) {
     if (!date.startsWith(month)) continue;
     if (untilDate && date > untilDate) continue;
@@ -545,7 +546,7 @@ export function monthlyHours(attendance, employeeId, month) {
   for (const row of attendance) {
     if (!row.date.startsWith(month)) continue;
     if (row.employeeId !== employeeId) continue;
-    if (row.label === "Жұмыста") totalDays += 1;
+    if (row.label === "Жұмыста" || row.label === "Командировка") totalDays += 1;
     else if (row.label === "Жарты күн") totalDays += 0.5;
     if (row.checkInTime && row.checkOutTime) {
       const minutes = timeStringToMinutes(row.checkOutTime) - timeStringToMinutes(row.checkInTime);
@@ -564,7 +565,7 @@ function dayFraction(row) {
     if (minutes <= 0) return row.label === "Жұмыста" ? 1 : 0;
     return Math.min(minutes / (DAILY_NORM_HOURS * 60), 1);
   }
-  if (row.label === "Жұмыста") return 1;
+  if (row.label === "Жұмыста" || row.label === "Командировка") return 1;
   if (row.label === "Жарты күн") return 0.5;
   return 0;
 }
@@ -618,7 +619,7 @@ export function buildManagerReport(store, date) {
   const attendanceMap = state.attendance || {};
   const records = attendanceMap[reportDate] || {};
   const employees = state.employees || [];
-  const grouped = { present: [], half: [], absent: [], dayoff: [], unmarked: [] };
+  const grouped = { present: [], half: [], business_trip: [], absent: [], dayoff: [], unmarked: [] };
 
   for (const employee of employees) {
     const status = records[employee.id]?.status;
@@ -633,14 +634,14 @@ export function buildManagerReport(store, date) {
     return {
       employee,
       counts: employeeCounts,
-      marked: employeeCounts.present + employeeCounts.half + employeeCounts.absent + employeeCounts.dayoff,
+      marked: employeeCounts.present + employeeCounts.half + (employeeCounts.business_trip || 0) + employeeCounts.absent + employeeCounts.dayoff,
     };
   });
   const monthTotals = monthlyRows.reduce((totals, row) => {
     const employeeCounts = row.counts;
     for (const key of Object.keys(totals)) totals[key] += employeeCounts[key] || 0;
     return totals;
-  }, { present: 0, half: 0, absent: 0, dayoff: 0 });
+  }, { present: 0, half: 0, business_trip: 0, absent: 0, dayoff: 0 });
 
   const lines = [
     "<b>Sert табель есебі</b>",
@@ -650,6 +651,7 @@ export function buildManagerReport(store, date) {
     `Белгіленді: <b>${counts.total - counts.unmarked}/${counts.total}</b>`,
     `Жұмыста: <b>${counts.present}</b>`,
     `Жарты күн: <b>${counts.half}</b>`,
+    `Командировка: <b>${counts.business_trip}</b>`,
     `Жоқ: <b>${counts.absent}</b>`,
     `Демалыс: <b>${counts.dayoff}</b>`,
     `Белгі жоқ: <b>${counts.unmarked}</b>`,
@@ -657,6 +659,7 @@ export function buildManagerReport(store, date) {
     `<b>${month} айлық қысқа есеп</b>`,
     `Жұмыста: <b>${monthTotals.present}</b>`,
     `Жарты күн: <b>${monthTotals.half}</b>`,
+    `Командировка: <b>${monthTotals.business_trip}</b>`,
     `Жоқ: <b>${monthTotals.absent}</b>`,
     `Демалыс: <b>${monthTotals.dayoff}</b>`,
   ];
@@ -672,6 +675,7 @@ export function buildManagerReport(store, date) {
   const sections = [
     ["Жұмыста", grouped.present],
     ["Жарты күн", grouped.half],
+    ["Командировка", grouped.business_trip],
     ["Жоқ", grouped.absent],
     ["Демалыс", grouped.dayoff],
     ["Белгі қойылмаған", grouped.unmarked],

@@ -20,6 +20,7 @@ import {
   MapPin,
   Megaphone,
   Moon,
+  Plane,
   Wallet,
   Plus,
   RotateCcw,
@@ -59,6 +60,18 @@ const statusMeta = {
     cellBg: "bg-amber-100",
     cellBgDark: "bg-amber-500/25",
     accent: "#f59e0b",
+  },
+  business_trip: {
+    label: "Командировка",
+    caption: "Іссапар",
+    Icon: Plane,
+    dot: "bg-indigo-500",
+    chip: "bg-indigo-50 text-indigo-700 ring-indigo-100",
+    chipDark: "bg-indigo-500/15 text-indigo-300 ring-indigo-400/30",
+    button: "from-indigo-500 to-indigo-700 shadow-indigo-900/20",
+    cellBg: "bg-indigo-100",
+    cellBgDark: "bg-indigo-500/25",
+    accent: "#6366f1",
   },
   absent: {
     label: "Жұмыста жоқ",
@@ -192,6 +205,8 @@ function App() {
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [manualCheckoutOpen, setManualCheckoutOpen] = useState(false);
+  const [tripStart, setTripStart] = useState("");
+  const [tripEnd, setTripEnd] = useState("");
   const [accessState, setAccessState] = useState("checking");
   const [workerData, setWorkerData] = useState(null);
   const [tgUserId, setTgUserId] = useState("");
@@ -436,6 +451,25 @@ function App() {
     const tg = getTelegram();
     if (tg?.openLink) tg.openLink(url);
     else window.open(url, "_blank");
+  }
+
+  async function markBusinessTrip() {
+    if (!selected || !tripStart || !tripEnd) return;
+    haptic("medium");
+    try {
+      const next = await api("/api/attendance", {
+        method: "POST",
+        body: JSON.stringify({ action: "range", employeeId: selected.id, status: "business_trip", startDate: tripStart, endDate: tripEnd }),
+      });
+      setState(next);
+      haptic("success");
+      showToast("success", `${selected.name}: командировка белгіленді (${tripStart} … ${tripEnd}).`);
+      setTripStart("");
+      setTripEnd("");
+    } catch (err) {
+      haptic("error");
+      showToast("error", err.message);
+    }
   }
 
   async function saveSalary(employeeId, value) {
@@ -819,7 +853,7 @@ function App() {
               </motion.button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {Object.entries(statusMeta).map(([key, meta]) => (
+              {Object.entries(statusMeta).filter(([key]) => key !== "business_trip").map(([key, meta]) => (
                 <StatusPill key={key} isDark={isDark} meta={meta} value={state.todayControl?.[key] || 0} />
               ))}
             </div>
@@ -930,7 +964,7 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-4 gap-2">
+                  <div className="mt-4 grid grid-cols-5 gap-1.5">
                     {Object.entries(statusMeta).map(([key, meta]) => (
                       <SmallStat key={key} isDark={isDark} meta={meta} value={selected.counts?.[key] || 0} />
                     ))}
@@ -1013,7 +1047,7 @@ function App() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {Object.entries(statusMeta).map(([key, meta]) => (
+              {Object.entries(statusMeta).filter(([key]) => key !== "business_trip").map(([key, meta]) => (
                 <StatusButton
                   key={key}
                   meta={meta}
@@ -1023,6 +1057,21 @@ function App() {
                   disabled={!selected || isFutureDate || pendingStatus}
                 />
               ))}
+            </div>
+            <div className={cx("mt-3 rounded-[18px] p-3 ring-1", isDark ? "bg-indigo-500/10 ring-indigo-400/25" : "bg-indigo-50 ring-indigo-100")}>
+              <p className={cx("flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider", isDark ? "text-indigo-300" : "text-indigo-700")}>
+                <Plane className="size-3.5" /> Командировка (аралық)
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <input type="date" value={tripStart} onChange={(e) => setTripStart(e.target.value)} aria-label="Бастау күні"
+                  className={cx("min-w-0 rounded-[12px] px-2.5 py-2 text-sm font-bold outline-none ring-1", isDark ? "bg-[#0a1126] text-white ring-white/10" : "bg-white text-[#07122b] ring-[#e3e9f3]")} />
+                <input type="date" value={tripEnd} onChange={(e) => setTripEnd(e.target.value)} aria-label="Аяқтау күні"
+                  className={cx("min-w-0 rounded-[12px] px-2.5 py-2 text-sm font-bold outline-none ring-1", isDark ? "bg-[#0a1126] text-white ring-white/10" : "bg-white text-[#07122b] ring-[#e3e9f3]")} />
+              </div>
+              <motion.button whileTap={{ scale: 0.97 }} onClick={markBusinessTrip} disabled={!selected || !tripStart || !tripEnd}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] bg-indigo-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">
+                <Plane className="size-4" /> Командировка деп белгілеу
+              </motion.button>
             </div>
             {isFutureDate && (
               <div className={cx("mt-3 rounded-[18px] px-4 py-3 text-sm font-black ring-1", isDark ? "bg-amber-500/10 text-amber-300 ring-amber-400/20" : "bg-amber-50 text-amber-800 ring-amber-100")}>
@@ -1934,7 +1983,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
 
   const monthDays = useMemo(() => {
     const map = {};
-    const labelToStatus = { "Жұмыста": "present", "Жарты күн": "half", "Жоқ": "absent", "Демалыс": "dayoff" };
+    const labelToStatus = { "Жұмыста": "present", "Жарты күн": "half", "Командировка": "business_trip", "Жоқ": "absent", "Демалыс": "dayoff" };
     for (const row of data.ownAttendance || []) {
       map[row.date.slice(-2)] = labelToStatus[row.label] || "";
     }
@@ -2197,6 +2246,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
                   const colors = {
                     present: isDark ? "bg-emerald-500/30 text-emerald-300" : "bg-emerald-100 text-emerald-700",
                     half: isDark ? "bg-amber-500/30 text-amber-300" : "bg-amber-100 text-amber-700",
+                    business_trip: isDark ? "bg-indigo-500/30 text-indigo-300" : "bg-indigo-100 text-indigo-700",
                     absent: isDark ? "bg-red-500/30 text-red-300" : "bg-red-100 text-red-700",
                     dayoff: isDark ? "bg-blue-500/30 text-blue-300" : "bg-blue-100 text-blue-700",
                   };
