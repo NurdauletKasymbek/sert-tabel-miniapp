@@ -1,0 +1,7 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="512" height="512" fill="#ffffff"/>
+  <circle cx="256" cy="256" r="242" fill="none" stroke="#0b1b5f" stroke-width="14"/>
+  <text x="256" y="300" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="150" letter-spacing="2" fill="#0b1b5f">sert</text>
+  <circle cx="372" cy="374" r="48" fill="#16a34a"/>
+  <path d="M350 374 L366 390 L396 360" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
