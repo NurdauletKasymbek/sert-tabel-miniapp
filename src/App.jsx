@@ -16,8 +16,11 @@ import {
   Clock3,
   FileDown,
   FileSpreadsheet,
+  LogOut,
+  MapPin,
   Megaphone,
   Moon,
+  Wallet,
   Plus,
   RotateCcw,
   Search,
@@ -1272,8 +1275,8 @@ function SalaryEditor({ isDark, value, onSave }) {
 
   return (
     <div className={cx("mt-4 rounded-[20px] p-3", isDark ? "bg-white/5" : "bg-[#f1f5fb]")}>
-      <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-        💵 Бекітілген айлық жалақы
+      <p className={cx("mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+        <Wallet className="size-3.5" /> Бекітілген айлық жалақы
       </p>
       <div className="flex items-center gap-2">
         <input
@@ -2013,9 +2016,10 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
                   whileTap={{ scale: 0.96 }}
                   onClick={() => performAction("worker-checkin")}
                   disabled={busy}
-                  className="mt-4 w-full rounded-[24px] bg-gradient-to-br from-[#0b1b5f] to-[#1d3bbe] px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(11,27,95,0.45)] disabled:opacity-50"
+                  className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-[24px] bg-gradient-to-br from-[#0b1b5f] to-[#1d3bbe] px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(11,27,95,0.45)] disabled:opacity-50"
                 >
-                  {busy ? "⏳ Тексерілуде..." : "📍 КІРУ"}
+                  {busy ? <Clock3 className="size-6 animate-spin" /> : <MapPin className="size-6" />}
+                  {busy ? "Тексерілуде..." : "КІРУ"}
                 </motion.button>
                 <p className={cx("mt-3 text-[11px] font-bold", isDark ? "text-slate-500" : "text-[#94a3b8]")}>
                   Батырманы жұмыс орнында ғана басыңыз
@@ -2037,9 +2041,10 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
                     whileTap={{ scale: 0.96 }}
                     onClick={() => { haptic("light"); setConfirmCheckoutOpen(true); }}
                     disabled={busy}
-                    className="mt-4 w-full rounded-[24px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(5,150,105,0.45)] disabled:opacity-50"
+                    className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-[24px] bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-xl font-black text-white shadow-[0_22px_60px_rgba(5,150,105,0.45)] disabled:opacity-50"
                   >
-                    {busy ? "⏳ Сақталуда..." : "🚪 ШЫҒУ"}
+                    {busy ? <Clock3 className="size-6 animate-spin" /> : <LogOut className="size-6" />}
+                    {busy ? "Сақталуда..." : "ШЫҒУ"}
                   </motion.button>
                 ) : (
                   <motion.div
@@ -2091,8 +2096,10 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
             )}
             {stage === "done" && (
               <>
-                <div className="text-5xl">✅</div>
-                <p className={cx("mt-2 text-base font-black", isDark ? "text-white" : "text-[#07122b]")}>Бүгінгі жұмыс аяқталды</p>
+                <div className="mx-auto grid size-16 place-items-center rounded-full bg-emerald-500/15 text-emerald-500">
+                  <Check className="size-9" strokeWidth={2.6} />
+                </div>
+                <p className={cx("mt-3 text-base font-black", isDark ? "text-white" : "text-[#07122b]")}>Бүгінгі жұмыс аяқталды</p>
                 <p className={cx("mt-2 text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
                   Кіру: <b>{checkInTime}</b>  •  Шығу: <b>{checkOutTime}</b>
                 </p>
@@ -2104,8 +2111,8 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
           </div>
 
           <div className="mt-5">
-            <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-              📊 Осы ай ({month})
+            <p className={cx("mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+              <BarChart3 className="size-3.5" /> Осы ай ({month})
             </p>
             <div className="grid grid-cols-3 gap-2">
               <div className={cx("rounded-[18px] p-3 text-center", isDark ? "bg-white/5" : "bg-white shadow")}>
@@ -2124,8 +2131,8 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
           </div>
 
           <div className="mt-5">
-            <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-              💰 Менің авансым
+            <p className={cx("mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+              <span className="grid size-4 place-items-center rounded-full bg-amber-500/20 text-[10px] font-black leading-none text-amber-500">₸</span> Менің авансым
             </p>
             <div className={cx("rounded-[18px] p-4", isDark ? "bg-white/5" : "bg-white shadow")}>
               <p className={cx("text-2xl font-black", isDark ? "text-white" : "text-[#07122b]")}>
@@ -2139,8 +2146,8 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
 
           {salary.monthlySalary > 0 && (
             <div className="mt-5">
-              <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-                💵 Менің жалақым ({month})
+              <p className={cx("mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                <Wallet className="size-3.5" /> Менің жалақым ({month})
               </p>
               <div className={cx("rounded-[22px] p-4", isDark ? "bg-white/5" : "bg-white shadow")}>
                 <div className="flex items-baseline justify-between">
@@ -2179,8 +2186,8 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
           )}
 
           <div className="mt-5">
-            <p className={cx("mb-2 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-              📅 Менің табелім ({month})
+            <p className={cx("mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+              <CalendarDays className="size-3.5" /> Менің табелім ({month})
             </p>
             <div className={cx("rounded-[18px] p-3", isDark ? "bg-white/5" : "bg-white shadow")}>
               <div className="grid grid-cols-7 gap-1">
