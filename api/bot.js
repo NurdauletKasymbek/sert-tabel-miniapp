@@ -167,8 +167,19 @@ export default async function handler(req, res) {
         url: `${base()}/api/bot`,
         secret_token: secret(),
         allowed_updates: ["message", "callback_query"],
+        drop_pending_updates: true,
       });
-      res.status(200).json({ ok: true, setWebhook: result });
+      res.status(200).json({ ok: true, base: base(), setWebhook: result });
+      return;
+    }
+    // Диагностика: /api/bot?action=info&key=<secret> → webhook күйі
+    if (req.method === "GET" && req.query?.action === "info") {
+      if (!secret() || req.query.key !== secret()) {
+        res.status(403).json({ error: "key қате" });
+        return;
+      }
+      const info = await tg("getWebhookInfo", {});
+      res.status(200).json({ base: base(), hasToken: Boolean(token()), info });
       return;
     }
     if (req.method !== "POST") {
