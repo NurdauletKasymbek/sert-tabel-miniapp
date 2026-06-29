@@ -914,15 +914,36 @@ async function handleAdminMessage(message, text, chatId) {
 }
 
 async function sendWorkerWelcome(chatId, fromUser) {
-  const greeting = fromUser?.first_name ? `Сәлем, ${escapeHtml(fromUser.first_name)}! 👋` : "Сәлем! 👋";
+  const userId = String(fromUser?.id || "");
+  const who = fromUser?.first_name || fromUser?.username || "";
+  const openButton = MINI_APP_URL
+    ? { inline_keyboard: [[{ text: "📱 Табель ашу", web_app: { url: MINI_APP_URL } }]] }
+    : workerKeyboard();
+
+  // Тіркелген қызметкер — қысқа сәлем. Әлі тіркелмеген — толық онбординг.
+  let registered = false;
+  try {
+    const state = await fetchApiState();
+    registered = Boolean(findEmployeeByTelegramId(state, userId));
+  } catch {}
+
+  if (registered) {
+    await sendMessage(
+      chatId,
+      `Ассалаумағалейкум${who ? `, <b>${escapeHtml(who)}</b>` : ""}! 👋`,
+      { reply_markup: openButton },
+    );
+    return;
+  }
+
+  const greeting = who ? `Сәлем, ${escapeHtml(who)}! 👋` : "Сәлем! 👋";
   await sendMessage(chatId, [
     greeting,
     "",
-    "Жұмысқа кіру, шығу, табельіңді көру — бәрі <b>Mini App</b>-та.",
+    "Жұмысқа кіру, шығу, табеліңді көру — бәрі <b>Mini App</b>-та.",
     "",
-    "↑ Жоғарыдағы <b>📱 Табель ашу</b> батырмасын басыңыз",
-    "(хабарлама жолының сол жағында)",
-  ].join("\n"), { reply_markup: workerKeyboard() });
+    "Төмендегі <b>📱 Табель ашу</b> батырмасын басып, тіркеліңіз 👇",
+  ].join("\n"), { reply_markup: openButton });
 }
 
 async function sendSharedQr(chatId) {
