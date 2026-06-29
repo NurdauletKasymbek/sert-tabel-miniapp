@@ -13,6 +13,18 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "Қызметкер аты керек" });
       return;
     }
+    const telegramId = String(body.telegramId || "").trim();
+    // Қайта тіркеу/қайта растау қорғанысы: сол Telegram ID-мен белсенді қызметкер
+    // бұрыннан бар болса — жаңа жазба жасамаймыз (бұрынғы дерек жоғалмайды).
+    if (telegramId) {
+      const dup = store.employees.find(
+        (e) => e.status !== "archived" && String(e.telegramId || "").trim() === telegramId,
+      );
+      if (dup) {
+        res.status(200).json({ ...publicState(store), alreadyRegistered: true, employeeId: dup.id });
+        return;
+      }
+    }
     const schedule = body.schedule === "school-half" ? "school-half" : "standard";
     const employee = {
       id: nextEmployeeId(store.employees),
