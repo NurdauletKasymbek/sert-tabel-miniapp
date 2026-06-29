@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bell,
   BriefcaseBusiness,
+  Camera,
   QrCode,
   Copy,
   CalendarCheck2,
@@ -417,11 +418,11 @@ function App() {
     }
   }
 
-  async function sendBroadcast(text) {
-    if (!text.trim()) return { sent: 0, failed: 0 };
+  async function sendBroadcast(text, photo) {
+    if (!text.trim() && !photo) return { sent: 0, failed: 0 };
     const result = await api("/api/state", {
       method: "POST",
-      body: JSON.stringify({ action: "broadcast", text: text.trim() }),
+      body: JSON.stringify({ action: "broadcast", text: text.trim(), photo: photo || "" }),
     });
     return result;
   }
@@ -1155,8 +1156,8 @@ function App() {
           <Modal isDark={isDark} title="📢 Жалпы хабарландыру" onClose={() => setBroadcastOpen(false)}>
             <BroadcastModal
               isDark={isDark}
-              onSend={async (text) => {
-                const result = await sendBroadcast(text);
+              onSend={async (text, photo) => {
+                const result = await sendBroadcast(text, photo);
                 showToast("success", `${result.sent || 0} қызметкерге жіберілді${result.failed ? `, ${result.failed} жіберілмеді` : ""}`);
                 setBroadcastOpen(false);
               }}
@@ -2415,16 +2416,50 @@ function ManualCheckoutForm({ isDark, employeeName, date, onSubmit }) {
   );
 }
 
+function compressImage(file, maxSize = 1280, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width >= height && width > maxSize) { height = Math.round((height * maxSize) / width); width = maxSize; }
+      else if (height > width && height > maxSize) { width = Math.round((width * maxSize) / height); height = maxSize; }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Сурет оқылмады")); };
+    img.src = url;
+  });
+}
+
 function BroadcastModal({ isDark, onSend, onError }) {
   const [text, setText] = useState("");
+  const [photo, setPhoto] = useState("");
   const [sending, setSending] = useState(false);
+  const fileRef = useRef(null);
+
+  async function pickPhoto(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      haptic("light");
+      setPhoto(await compressImage(file));
+    } catch (err) {
+      onError?.(err.message || "Сурет оқылмады");
+    }
+  }
 
   async function submit() {
-    if (!text.trim() || sending) return;
+    if ((!text.trim() && !photo) || sending) return;
     haptic("medium");
     setSending(true);
     try {
-      await onSend(text);
+      await onSend(text, photo);
     } catch (err) {
       haptic("error");
       onError?.(err.message || "Жіберілмеді");
@@ -2436,19 +2471,41 @@ function BroadcastModal({ isDark, onSend, onError }) {
   return (
     <div className="space-y-3">
       <p className={cx("text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-        Хабарлама барлық тіркелген қызметкерлерге Telegram арқылы жіберіледі.
+        Хабарлама (және сурет) барлық тіркелген қызметкерлерге Telegram арқылы жіберіледі.
       </p>
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={pickPhoto} className="hidden" />
+      {photo ? (
+        <div className="relative overflow-hidden rounded-[18px]">
+          <img src={photo} alt="Тіркелген сурет" className="max-h-56 w-full object-cover" />
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={() => { haptic("light"); setPhoto(""); }}
+            className="absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/55 text-white"
+            aria-label="Суретті алып тастау"
+          >
+            <X className="size-4" />
+          </motion.button>
+        </div>
+      ) : (
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={() => { haptic("light"); fileRef.current?.click(); }}
+          className={cx("flex w-full items-center justify-center gap-2 rounded-[18px] border-2 border-dashed px-4 py-4 text-sm font-black", isDark ? "border-white/15 text-slate-300" : "border-[#dbe2ee] text-[#5b6680]")}
+        >
+          <Camera className="size-5" /> Сурет/камера қосу
+        </motion.button>
+      )}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Хабарлама мәтіні..."
-        rows={5}
+        placeholder={photo ? "Сурет астына жазу (міндетті емес)..." : "Хабарлама мәтіні..."}
+        rows={photo ? 3 : 5}
         className={cx("form-input resize-none", isDark && "form-input-dark")}
       />
       <motion.button
         whileTap={{ scale: 0.97 }}
         onClick={submit}
-        disabled={sending || !text.trim()}
+        disabled={sending || (!text.trim() && !photo)}
         className="w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50"
       >
         {sending ? "Жіберілуде..." : "📤 Жіберу"}

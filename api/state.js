@@ -18,6 +18,31 @@ async function sendTelegramText(chatId, text) {
   return response.ok;
 }
 
+// Суретті алғаш рет жүктеп жіберу — қайтарған file_id-ні кейінгілерге пайдаланамыз.
+async function sendTelegramPhotoUpload(chatId, buffer, caption) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN жоқ");
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
+  form.append("photo", new Blob([buffer], { type: "image/jpeg" }), "photo.jpg");
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: "POST", body: form });
+  const result = await response.json().catch(() => ({}));
+  const photos = result.result?.photo || [];
+  return { ok: Boolean(result.ok), fileId: photos.length ? photos[photos.length - 1].file_id : "" };
+}
+
+async function sendTelegramPhotoById(chatId, fileId, caption) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, photo: fileId, caption, parse_mode: "HTML" }),
+  });
+  const result = await response.json().catch(() => ({}));
+  return Boolean(result.ok);
+}
+
 let botUsernameCache = null;
 
 async function getBotUsername() {
@@ -113,21 +138,39 @@ export default async function handler(req, res) {
 
       if (reqAction === "broadcast") {
         const text = String(body.text || "").trim();
-        if (!text) {
-          res.status(400).json({ error: "Хабарлама бос болмауы керек" });
+        const photoData = String(body.photo || "");
+        let photoBuffer = null;
+        if (photoData.startsWith("data:")) {
+          const b64 = photoData.split(",")[1] || "";
+          if (b64) photoBuffer = Buffer.from(b64, "base64");
+        }
+        if (!text && !photoBuffer) {
+          res.status(400).json({ error: "Хабарлама не сурет керек" });
           return;
         }
         const store = await loadStore();
         const recipients = (store.employees || []).filter(
           (e) => e.status !== "archived" && e.telegramId,
         );
+        const caption = (text ? `📢 <b>Хабарландыру</b>\n\n${escapeHtml(text)}` : "📢 <b>Хабарландыру</b>").slice(0, 1000);
+        const textMsg = `📢 <b>Хабарландыру</b>\n\n${escapeHtml(text)}`;
         let sent = 0;
         let failed = 0;
-        const decoratedText = `📢 <b>Хабарландыру</b>\n\n${text}`;
+        let fileId = "";
         for (const employee of recipients) {
           try {
-            const ok = await sendTelegramText(employee.telegramId, decoratedText);
-            if (ok) sent += 1; else failed += 1;
+            if (photoBuffer) {
+              if (!fileId) {
+                const r = await sendTelegramPhotoUpload(employee.telegramId, photoBuffer, caption);
+                if (r.ok) { sent += 1; if (r.fileId) fileId = r.fileId; } else failed += 1;
+              } else {
+                const ok = await sendTelegramPhotoById(employee.telegramId, fileId, caption);
+                if (ok) sent += 1; else failed += 1;
+              }
+            } else {
+              const ok = await sendTelegramText(employee.telegramId, textMsg);
+              if (ok) sent += 1; else failed += 1;
+            }
           } catch {
             failed += 1;
           }
@@ -139,8 +182,8 @@ export default async function handler(req, res) {
             employeeId: "",
             name: "",
             date: "",
-            oldLabel: "",
-            newLabel: text.slice(0, 200),
+            oldLabel: photoBuffer ? "сурет" : "",
+            newLabel: (text || "[сурет]").slice(0, 200),
           }]);
         } catch {}
         res.status(200).json({ sent, failed, total: recipients.length });
