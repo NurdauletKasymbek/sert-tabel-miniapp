@@ -105,6 +105,23 @@ function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
+// Қазақстан уақыты — тұрақты UTC+5. Атаулы белдеуге (Asia/...) сүйенбейді,
+// сондықтан кез келген телефонда (ескі/шектеулі құрылғыда да) дұрыс +5 көрсетеді.
+function kzParts(date = new Date()) {
+  const k = new Date(date.getTime() + 5 * 3600 * 1000);
+  return { h: k.getUTCHours(), m: k.getUTCMinutes(), s: k.getUTCSeconds(), day: k.getUTCDate(), month: k.getUTCMonth() + 1 };
+}
+const kzPad = (n) => String(n).padStart(2, "0");
+function kzClock(date, seconds = true) {
+  const p = kzParts(date);
+  return seconds ? `${kzPad(p.h)}:${kzPad(p.m)}:${kzPad(p.s)}` : `${kzPad(p.h)}:${kzPad(p.m)}`;
+}
+function kzDateTime(iso) {
+  if (!iso) return "";
+  const p = kzParts(new Date(iso));
+  return `${kzPad(p.day)}.${kzPad(p.month)} ${kzPad(p.h)}:${kzPad(p.m)}`;
+}
+
 function monthLabel(month) {
   const [year, rawMonth] = month.split("-");
   const names = ["Қаңтар", "Ақпан", "Наурыз", "Сәуір", "Мамыр", "Маусым", "Шілде", "Тамыз", "Қыркүйек", "Қазан", "Қараша", "Желтоқсан"];
@@ -1889,13 +1906,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   }
 
   const minutesUntilEnd = useMemo(() => {
-    const formatted = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Tashkent",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(now);
-    const [h, m] = formatted.split(":").map(Number);
+    const { h, m } = kzParts(now);
     const total = (h || 0) * 60 + (m || 0);
     return Math.max(0, 18 * 60 - total);
   }, [now]);
@@ -2053,7 +2064,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Уақыт</p>
               <p className="text-lg font-black tabular-nums text-white">
-                {now.toLocaleTimeString("kk-KZ", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                {kzClock(now)}
               </p>
             </div>
             <div className="text-right">
@@ -2312,7 +2323,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
                   {broadcasts.map((b, i) => (
                     <div key={i} className={cx("rounded-[16px] px-3 py-2.5", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
                       <p className={cx("text-[10px] font-bold uppercase", isDark ? "text-slate-500" : "text-[#94a3b8]")}>
-                        {b.at ? new Date(b.at).toLocaleString("kk-KZ", { timeZone: "Asia/Tashkent", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                        {kzDateTime(b.at)}
                       </p>
                       <p className={cx("mt-1 text-sm font-bold", isDark ? "text-white" : "text-[#07122b]")}>{b.text}</p>
                     </div>
@@ -2359,14 +2370,7 @@ function ActionErrorPanel({ isDark, error, onRetry }) {
 }
 
 function ManualCheckoutForm({ isDark, employeeName, date, onSubmit }) {
-  const defaultTime = useMemo(() => {
-    return new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Tashkent",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(new Date());
-  }, []);
+  const defaultTime = useMemo(() => kzClock(new Date(), false), []);
   const [time, setTime] = useState(defaultTime);
   const [saving, setSaving] = useState(false);
 
@@ -2464,7 +2468,7 @@ function NotificationsList({ isDark, history }) {
   return (
     <div className="space-y-2">
       {history.map((item, idx) => {
-        const time = item.at ? new Date(item.at).toLocaleString("kk-KZ", { timeZone: "Asia/Tashkent", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+        const time = kzDateTime(item.at);
         return (
           <div key={idx} className={cx("rounded-[16px] px-3 py-2.5", isDark ? "bg-white/5" : "bg-[#f4f7fc]")}>
             <div className="flex items-center justify-between gap-2">
