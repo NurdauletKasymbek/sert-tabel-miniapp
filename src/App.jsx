@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -1506,12 +1507,14 @@ function Avatar({ photoUrl, name, size = 48 }) {
 
 function Modal({ isDark, title, children, onClose, center = false }) {
   // center=true — ортада «вспливающий» (масштабпен) шығады; әйтпесе астыңғы парақ.
-  return (
+  // Portal арқылы тікелей <body>-ге шығарамыз — ешқандай ата-элементтің
+  // transform/overflow стилі fixed позицияны бұзбауы үшін.
+  const overlay = (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className={cx("fixed inset-0 z-50 grid bg-[#061133]/55 p-4 backdrop-blur-sm", center ? "place-items-center" : "place-items-end")}
+      className={cx("fixed inset-0 z-[100] flex justify-center bg-[#061133]/55 p-4 backdrop-blur-sm", center ? "items-center" : "items-end")}
       onClick={onClose}
     >
       <motion.div
@@ -1520,18 +1523,24 @@ function Modal({ isDark, title, children, onClose, center = false }) {
         exit={center ? { opacity: 0, scale: 0.9 } : { y: 80, opacity: 0, scale: 0.96 }}
         transition={{ type: "spring", stiffness: 360, damping: 30 }}
         onClick={(event) => event.stopPropagation()}
-        className={cx("w-full max-w-[430px] rounded-[30px] p-5 shadow-2xl", isDark ? "bg-[#0e1530] text-white" : "bg-white")}
+        className={cx("flex max-h-[85vh] w-full max-w-[430px] flex-col overflow-hidden rounded-[30px] p-5 shadow-2xl", isDark ? "bg-[#0e1530] text-white" : "bg-white")}
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className={cx("text-xl font-black", isDark ? "text-white" : "text-[#07122b]")}>{title}</h3>
-          <motion.button whileTap={{ scale: 0.9 }} onClick={onClose} className={cx("grid size-10 place-items-center rounded-full", isDark ? "bg-white/10 text-slate-300" : "bg-[#f4f7fc] text-[#64748b]")} aria-label="Жабу">
+          <motion.button whileTap={{ scale: 0.9 }} onClick={onClose} className={cx("grid size-10 shrink-0 place-items-center rounded-full", isDark ? "bg-white/10 text-slate-300" : "bg-[#f4f7fc] text-[#64748b]")} aria-label="Жабу">
             <X className="size-5" />
           </motion.button>
         </div>
-        {children}
+        <div className="overflow-y-auto">
+          {children}
+        </div>
       </motion.div>
     </motion.div>
   );
+  if (typeof document !== "undefined" && document.body) {
+    return createPortal(overlay, document.body);
+  }
+  return overlay;
 }
 
 function SkeletonCard({ isDark }) {
