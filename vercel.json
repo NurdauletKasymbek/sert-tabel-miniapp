@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/scheduled-notifications",
-      "schedule": "0 4 * * *"
+      "path": "/api/scheduled-notifications?mode=evening",
+      "schedule": "0 13 * * *"
     },
     {
       "path": "/api/scheduled-notifications?mode=checkout-reminder",

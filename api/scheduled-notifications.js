@@ -114,6 +114,12 @@ export default async function handler(req, res) {
     else if (mode === "reminder" || (!mode && time === "18:00")) result = await sendReminder();
     else if (mode === "daily" || (!mode && time === "19:00")) result = await sendDaily();
     else if (mode === "monthly" || (!mode && time === "09:00")) result = await sendMonthly();
+    else if (mode === "evening") {
+      // Кешкі бір cron: белгі қойылмағандар ескертуі + ай соңы болса айлық есеп.
+      const reminder = await sendReminder();
+      const monthly = isLastDay(todayDate()) ? await sendMonthly() : { type: "monthly", skipped: "not_last_day" };
+      result = { evening: true, reminder, monthly };
+    }
     else result = { skipped: "no_action_for_time", time };
 
     res.status(200).json({ ok: true, time, result });
