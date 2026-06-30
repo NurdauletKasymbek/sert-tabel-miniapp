@@ -31,6 +31,15 @@ function localHourMinute() {
   return `${map.hour}:${map.minute}`;
 }
 
+// Конфигурацияланған уақыт белдеуінде бүгін жексенбі ме?
+function isSundayLocal() {
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: process.env.BOT_TIMEZONE || "Asia/Tashkent",
+    weekday: "short",
+  }).format(new Date());
+  return wd === "Sun";
+}
+
 function isLastDay(date) {
   const [year, month, day] = date.split("-").map(Number);
   return day === new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -148,8 +157,10 @@ export default async function handler(req, res) {
       }
     }
     else if (mode === "evening") {
-      // Кешкі бір cron: белгі қойылмағандар ескертуі + ай соңы болса айлық есеп.
-      const reminder = await sendReminder();
+      // Белгі қойылмағандар ескертуі (жексенбіде келмейді) + ай соңы болса айлық есеп.
+      const reminder = isSundayLocal()
+        ? { type: "reminder", skipped: "sunday" }
+        : await sendReminder();
       const monthly = isLastDay(todayDate()) ? await sendMonthly() : { type: "monthly", skipped: "not_last_day" };
       result = { evening: true, reminder, monthly };
     }
