@@ -1504,19 +1504,20 @@ function Avatar({ photoUrl, name, size = 48 }) {
   );
 }
 
-function Modal({ isDark, title, children, onClose }) {
+function Modal({ isDark, title, children, onClose, center = false }) {
+  // center=true — ортада «вспливающий» (масштабпен) шығады; әйтпесе астыңғы парақ.
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 grid place-items-end bg-[#061133]/55 p-4 backdrop-blur-sm"
+      className={cx("fixed inset-0 z-50 grid bg-[#061133]/55 p-4 backdrop-blur-sm", center ? "place-items-center" : "place-items-end")}
       onClick={onClose}
     >
       <motion.div
-        initial={{ y: 60, opacity: 0, scale: 0.96 }}
-        animate={{ y: 0, opacity: 1, scale: 1 }}
-        exit={{ y: 80, opacity: 0, scale: 0.96 }}
+        initial={center ? { opacity: 0, scale: 0.9 } : { y: 60, opacity: 0, scale: 0.96 }}
+        animate={center ? { opacity: 1, scale: 1 } : { y: 0, opacity: 1, scale: 1 }}
+        exit={center ? { opacity: 0, scale: 0.9 } : { y: 80, opacity: 0, scale: 0.96 }}
         transition={{ type: "spring", stiffness: 360, damping: 30 }}
         onClick={(event) => event.stopPropagation()}
         className={cx("w-full max-w-[430px] rounded-[30px] p-5 shadow-2xl", isDark ? "bg-[#0e1530] text-white" : "bg-white")}
@@ -2356,7 +2357,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
             </Modal>
           )}
           {notifOpen && (
-            <Modal isDark={isDark} title="🔔 Хабарландырулар" onClose={() => setNotifOpen(false)}>
+            <Modal isDark={isDark} center title="🔔 Хабарландырулар" onClose={() => setNotifOpen(false)}>
               {broadcasts.length === 0 ? (
                 <p className={cx("rounded-[16px] p-4 text-center text-sm font-bold", isDark ? "bg-white/5 text-slate-400" : "bg-[#f4f7fc] text-[#7a86a0]")}>
                   Әлі хабарландыру жоқ.
