@@ -124,6 +124,29 @@ export default async function handler(req, res) {
     else if (mode === "reminder" || (!mode && time === "18:00")) result = await sendReminder();
     else if (mode === "daily" || (!mode && time === "19:00")) result = await sendDaily();
     else if (mode === "monthly" || (!mode && time === "09:00")) result = await sendMonthly();
+    else if (mode === "test") {
+      // Тек бір ID-ге тексеру хабарын жібереді: ?mode=test&to=<telegramId>
+      const to = String(req.query?.to || "").trim();
+      if (!to) {
+        result = { type: "test", skipped: "no_to" };
+      } else {
+        const store = await loadStore();
+        const state = publicState(store);
+        const unmarked = state.unmarkedEmployees || [];
+        const text = [
+          "🧪 <b>ТЕСТ — Табель ескертуі</b>",
+          `Күн: <b>${state.today}</b>`,
+          "",
+          unmarked.length
+            ? `Әлі белгі қойылмаған: <b>${unmarked.length}</b>\n${unmarked.map((e) => `- ${e.name}`).join("\n")}`
+            : "Барлығы белгіленген ✅",
+          "",
+          "Бұл — тексеру хабары (нақты ескерту күн сайын 18:00-де келеді).",
+        ].join("\n");
+        await sendTelegramMessage(to, text, { reply_markup: miniAppKeyboard() });
+        result = { type: "test", sentTo: to, unmarked: unmarked.length, date: state.today };
+      }
+    }
     else if (mode === "evening") {
       // Кешкі бір cron: белгі қойылмағандар ескертуі + ай соңы болса айлық есеп.
       const reminder = await sendReminder();
