@@ -1,6 +1,16 @@
 import { buildManagerReport, loadStore, publicState, todayDate } from "./_lib/sheets.js";
 import { idsFromEnv, miniAppKeyboard, sendTelegramMessage } from "./_lib/telegram.js";
 
+// Әкімшіге арналған ескерту алушылары: env айнымалылары + «Әкімшілер»
+// парағындағы Telegram ID-і бар барлық адам (қосарланбай).
+function recipientIds(store, ...envNames) {
+  const envIds = idsFromEnv(...envNames);
+  const sheetIds = (store.admins || [])
+    .map((a) => String(a.telegramId || "").trim())
+    .filter(Boolean);
+  return [...new Set([...envIds, ...sheetIds])];
+}
+
 function assertCron(req) {
   const secret = process.env.CRON_SECRET || "";
   if (!secret) return;
@@ -27,9 +37,9 @@ function isLastDay(date) {
 }
 
 async function sendReminder() {
-  const ids = idsFromEnv("RESPONSIBLE_TELEGRAM_IDS", "ADMIN_TELEGRAM_IDS");
-  if (!ids.length) return { type: "reminder", skipped: "no_recipients" };
   const store = await loadStore();
+  const ids = recipientIds(store, "RESPONSIBLE_TELEGRAM_IDS", "ADMIN_TELEGRAM_IDS");
+  if (!ids.length) return { type: "reminder", skipped: "no_recipients" };
   const state = publicState(store);
   const unmarked = state.unmarkedEmployees || [];
   if (!unmarked.length) return { type: "reminder", skipped: "all_marked", date: state.today };
@@ -49,9 +59,9 @@ async function sendReminder() {
 }
 
 async function sendDaily() {
-  const ids = idsFromEnv("MANAGER_TELEGRAM_IDS", "ADMIN_TELEGRAM_IDS");
-  if (!ids.length) return { type: "daily", skipped: "no_recipients" };
   const store = await loadStore();
+  const ids = recipientIds(store, "MANAGER_TELEGRAM_IDS", "ADMIN_TELEGRAM_IDS");
+  if (!ids.length) return { type: "daily", skipped: "no_recipients" };
   const report = buildManagerReport(store, "");
   const text = ["<b>Күндік және айлық табель есебі</b>", "", report.text].join("\n");
   await Promise.all(ids.map((chatId) => sendTelegramMessage(chatId, text, { reply_markup: miniAppKeyboard() })));
@@ -90,9 +100,9 @@ async function sendCheckoutReminder() {
 async function sendMonthly() {
   const date = todayDate();
   if (!isLastDay(date)) return { type: "monthly", skipped: "not_last_day", date };
-  const ids = idsFromEnv("MANAGER_TELEGRAM_IDS", "ADMIN_TELEGRAM_IDS");
-  if (!ids.length) return { type: "monthly", skipped: "no_recipients" };
   const store = await loadStore();
+  const ids = recipientIds(store, "MANAGER_TELEGRAM_IDS", "ADMIN_TELEGRAM_IDS");
+  if (!ids.length) return { type: "monthly", skipped: "no_recipients" };
   const report = buildManagerReport(store, date);
   const text = ["<b>Ай соңындағы толық табель есебі</b>", "", report.text].join("\n");
   await Promise.all(ids.map((chatId) => sendTelegramMessage(chatId, text, { reply_markup: miniAppKeyboard() })));
