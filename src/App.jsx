@@ -230,6 +230,8 @@ function App() {
   const [tgUserId, setTgUserId] = useState("");
   const [tgPhotoUrl, setTgPhotoUrl] = useState("");
   const [tgFirstName, setTgFirstName] = useState("");
+  // NFC-стикер арқылы ашылды ма? (startapp=checkin) — авто-КІРУ үшін
+  const [autoCheckin, setAutoCheckin] = useState(false);
 
   const employeeListRef = useRef(null);
   const swipeStartRef = useRef(null);
@@ -293,6 +295,19 @@ function App() {
         })();
         setTgPhotoUrl(userInfo?.photo_url || "");
         setTgFirstName(userInfo?.first_name || "");
+        // NFC-стикер сілтемесі: https://t.me/BOT/app?startapp=checkin
+        // Телефон стикерге тигенде Telegram осы параметрмен ашады → авто-КІРУ.
+        try {
+          let startParam = tg?.initDataUnsafe?.start_param || "";
+          if (!startParam && tg?.initData) {
+            startParam = new URLSearchParams(tg.initData).get("start_param") || "";
+          }
+          if (!startParam && typeof window !== "undefined") {
+            const url = new URL(window.location.href);
+            startParam = url.searchParams.get("tgWebAppStartParam") || url.searchParams.get("startapp") || "";
+          }
+          if (String(startParam).toLowerCase() === "checkin") setAutoCheckin(true);
+        } catch {}
         if (!userId) {
           // initData дайын болмады — Telegram-нан тыс ашылған шығар
           setAccessState("no-telegram");
@@ -757,6 +772,7 @@ function App() {
         data={workerData}
         userId={tgUserId}
         photoUrl={tgPhotoUrl}
+        autoCheckin={autoCheckin}
         onRefresh={refreshWorker}
       />
     );
@@ -1867,7 +1883,7 @@ function RegistrationScreen({ isDark, userId, onSent }) {
   );
 }
 
-function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh }) {
+function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, autoCheckin, onRefresh }) {
   const employee = data.employee;
   const todayRow = data.todayRow;
   const counts = data.counts || { present: 0, half: 0, absent: 0, dayoff: 0 };
@@ -1885,6 +1901,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const autoCheckinDone = useRef(false);
 
   async function downloadMyPdf() {
     if (pdfBusy) return;
@@ -2004,6 +2021,16 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
       setBusy(false);
     }
   }
+
+  // NFC-стикерге тигенде (startapp=checkin) — авто-КІРУ.
+  // Тек бір рет, бүгін кіру белгісі әлі жоқ болса ғана іске қосамыз.
+  useEffect(() => {
+    if (!autoCheckin || autoCheckinDone.current) return;
+    if (stage !== "idle" || adminStatusLabel) return;
+    autoCheckinDone.current = true;
+    performAction("worker-checkin");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCheckin, stage, adminStatusLabel]);
 
   const monthDays = useMemo(() => {
     const map = {};
