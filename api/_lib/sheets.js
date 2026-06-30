@@ -725,6 +725,27 @@ export async function saveAttendance(attendance) {
   }
 }
 
+// Қауіпсіз жазу: бүкіл парақты ескі (кэштелген) көшірмеден қайта жазудың
+// орнына, дәл жазар алдында парақты ЖАҢА оқып, тек өзгерген жолдарды
+// (date+employeeId кілті бойынша) біріктіреді. Осылайша бір уақытта басқан
+// қызметкерлердің жазбалары бір-бірін өшірмейді (lost-update болмайды).
+//   changed    — толық пішімдегі attendance жол объектілері (қосылады/жаңарады)
+//   removeKeys — өшірілетін "${date}__${employeeId}" кілттер тізімі
+export async function upsertAttendance(changed = [], removeKeys = []) {
+  invalidateStoreCache();
+  await ensureSheets();
+  const current = (await getValues(a1(SHEETS.attendance, "A2:K5000")))
+    .filter((row) => row[0] && row[1])
+    .map(rowToAttendance);
+  const map = new Map();
+  for (const row of current) map.set(`${row.date}__${row.employeeId}`, row);
+  for (const key of removeKeys) map.delete(key);
+  for (const row of changed) map.set(`${row.date}__${row.employeeId}`, row);
+  const merged = [...map.values()];
+  await saveAttendance(merged);
+  return merged;
+}
+
 export async function appendHistory(rows) {
   if (!rows.length) return;
   storeCache = null;

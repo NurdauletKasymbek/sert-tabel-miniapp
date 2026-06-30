@@ -1,4 +1,4 @@
-import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel } from "./_lib/sheets.js";
+import { appendHistory, assertNotFutureDate, currentTime, invalidateStoreCache, loadStore, publicState, rebuildSummary, statusToLabel, upsertAttendance } from "./_lib/sheets.js";
 
 export default async function handler(req, res) {
   try {
@@ -8,6 +8,7 @@ export default async function handler(req, res) {
     }
 
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
+    invalidateStoreCache();
     const store = await loadStore();
     const date = String(body.date || "");
     const role = String(body.role || "");
@@ -27,28 +28,32 @@ export default async function handler(req, res) {
       if (row.date === date && targetIds.has(row.employeeId)) previousByEmployee.set(row.employeeId, row.label || "");
     }
 
-    // Remove previous records first; bulk marking should also replace mistaken marks.
-    store.attendance = store.attendance.filter((row) => !(row.date === date && targetIds.has(row.employeeId)));
-
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
     const isWeekend = weekday === 0 || weekday === 6;
 
     const now = new Date().toISOString();
     const time = currentTime();
     const history = [];
+    const changed = [];
     for (const employee of targets) {
       const oldLabel = previousByEmployee.get(employee.id) || "";
       const employeeRole = employee.role || "Қызметкер";
       const employeeStatus = employee.schedule === "school-half" && !isWeekend ? "half" : status;
       const label = statusToLabel(employeeStatus);
-      store.attendance.push({
+      // Бар жазбаның Кіру/Шығу сағатын жоғалтпаймыз — тек белгіні (статусты) жаңартамыз.
+      const prev = store.attendance.find((row) => row.date === date && row.employeeId === employee.id);
+      changed.push({
         date,
         employeeId: employee.id,
         name: employee.name,
         role: employeeRole,
         label,
-        time,
+        time: prev?.time || time,
         updatedAt: now,
+        checkInTime: prev?.checkInTime || "",
+        checkOutTime: prev?.checkOutTime || "",
+        lateMinutes: prev?.lateMinutes || 0,
+        earlyMinutes: prev?.earlyMinutes || 0,
       });
       history.push({
         at: now,
@@ -61,10 +66,12 @@ export default async function handler(req, res) {
       });
     }
 
-    await saveAttendance(store.attendance);
+    await upsertAttendance(changed);
     await appendHistory(history);
-    await rebuildSummary(store);
-    res.status(200).json(publicState(store));
+    invalidateStoreCache();
+    const fresh = await loadStore();
+    await rebuildSummary(fresh);
+    res.status(200).json(publicState(fresh));
   } catch (error) {
     res.status(500).json({ error: `Жаппай белгі сақталмады: ${error.message}` });
   }

@@ -1,4 +1,4 @@
-import { appendHistory, assertNotFutureDate, currentTime, loadStore, publicState, rebuildSummary, saveAttendance, statusToLabel, todayDate, STATUSES } from "./_lib/sheets.js";
+import { appendHistory, assertNotFutureDate, currentTime, invalidateStoreCache, loadStore, publicState, rebuildSummary, statusToLabel, todayDate, upsertAttendance, STATUSES } from "./_lib/sheets.js";
 
 const WORK_END_HOUR = 18;
 
@@ -44,6 +44,9 @@ export default async function handler(req, res) {
     }
 
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
+    // Жазу операциясы — әрқашан ЖАҢА деректен бастаймыз (10 сек кэшті аттап өтеміз),
+    // әйтпесе ескі көшірмемен бүкіл парақты қайта жазып, басқа жазбаларды өшіреміз.
+    invalidateStoreCache();
     const store = await loadStore();
     const action = String(body.action || "").toLowerCase();
 
@@ -111,10 +114,7 @@ export default async function handler(req, res) {
         const status = "present";
         const label = statusToLabel(status);
 
-        store.attendance = store.attendance.filter(
-          (row) => !(row.date === wToday && row.employeeId === wEmployee.id),
-        );
-        store.attendance.push({
+        await upsertAttendance([{
           date: wToday,
           employeeId: wEmployee.id,
           name: wEmployee.name,
@@ -126,9 +126,7 @@ export default async function handler(req, res) {
           checkOutTime: "",
           lateMinutes: lateMin,
           earlyMinutes: 0,
-        });
-
-        await saveAttendance(store.attendance);
+        }]);
         await appendHistory([{
           at: new Date().toISOString(),
           action: "Кіру белгіленді",
@@ -172,18 +170,13 @@ export default async function handler(req, res) {
       // Кіру/Шығу сағаты сақталады да, жалақы сол сағатқа пропорционал есептеледі.
       const newLabel = wExisting.label;
 
-      store.attendance = store.attendance.filter(
-        (row) => !(row.date === wToday && row.employeeId === wEmployee.id),
-      );
-      store.attendance.push({
+      await upsertAttendance([{
         ...wExisting,
         label: newLabel,
         checkOutTime: now,
         earlyMinutes: earlyMin,
         updatedAt: new Date().toISOString(),
-      });
-
-      await saveAttendance(store.attendance);
+      }]);
       await appendHistory([{
         at: new Date().toISOString(),
         action: "Шығу белгіленді",
@@ -193,7 +186,8 @@ export default async function handler(req, res) {
         oldLabel: wExisting.label,
         newLabel: `Шығу: ${now}${earlyMin ? ` (${earlyMin} мин ерте)` : ""}`,
       }]);
-      await rebuildSummary({ ...store });
+      invalidateStoreCache();
+      await rebuildSummary(await loadStore());
 
       const parts = [];
       if (outsideDistance > 0) {
@@ -246,20 +240,19 @@ export default async function handler(req, res) {
       const label = statusToLabel(status);
       const role = employee.role || "Қызметкер";
       const stamp = new Date().toISOString();
-      for (const d of dates) {
-        store.attendance = store.attendance.filter((row) => !(row.date === d && row.employeeId === employeeId));
-        store.attendance.push({
-          date: d, employeeId, name: employee.name, role, label, time: "",
-          updatedAt: stamp, checkInTime: "", checkOutTime: "", lateMinutes: 0, earlyMinutes: 0,
-        });
-      }
-      await saveAttendance(store.attendance);
+      const changed = dates.map((d) => ({
+        date: d, employeeId, name: employee.name, role, label, time: "",
+        updatedAt: stamp, checkInTime: "", checkOutTime: "", lateMinutes: 0, earlyMinutes: 0,
+      }));
+      await upsertAttendance(changed);
       await appendHistory([{
         at: stamp, action: "Аралық белгі", employeeId, name: employee.name,
         date: `${startDate}…${endDate}`, oldLabel: "", newLabel: `${label} (${dates.length} күн)`,
       }]);
-      await rebuildSummary(store);
-      res.status(200).json(publicState(store));
+      invalidateStoreCache();
+      const fresh = await loadStore();
+      await rebuildSummary(fresh);
+      res.status(200).json(publicState(fresh));
       return;
     }
 
@@ -283,15 +276,13 @@ export default async function handler(req, res) {
       // Белгі сол күйінде қалады — қысқа жұмыс күні нақты сағатпен есепке алынады.
       const newLabel = existing.label;
 
-      store.attendance = store.attendance.filter((row) => !(row.date === date && row.employeeId === employeeId));
-      store.attendance.push({
+      await upsertAttendance([{
         ...existing,
         label: newLabel,
         checkOutTime,
         earlyMinutes,
         updatedAt: new Date().toISOString(),
-      });
-      await saveAttendance(store.attendance);
+      }]);
       await appendHistory([{
         at: new Date().toISOString(),
         action: "Шығу белгіленді",
@@ -301,8 +292,10 @@ export default async function handler(req, res) {
         oldLabel: existing.label,
         newLabel: `Шығу: ${checkOutTime}${earlyMinutes > 0 ? ` (${earlyMinutes} мин ерте)` : ""}${newLabel !== existing.label ? ` [${newLabel}]` : ""}`,
       }]);
-      await rebuildSummary({ ...store });
-      res.status(200).json(publicState(store));
+      invalidateStoreCache();
+      const fresh = await loadStore();
+      await rebuildSummary(fresh);
+      res.status(200).json(publicState(fresh));
       return;
     }
 
@@ -321,14 +314,13 @@ export default async function handler(req, res) {
     const label = statusToLabel(status);
 
     // Keep only one record per employee per day so changing a mistaken mark really replaces it.
-    store.attendance = store.attendance.filter((row) => !(row.date === date && row.employeeId === employeeId));
     const newCheckIn = existing?.checkInTime || ((status === "present" || status === "half") ? now : "");
     let lateMin = existing?.lateMinutes || 0;
     if (isNewCheckIn) {
       const total = timeToMinutes(now);
       lateMin = total > 9 * 60 ? total - 9 * 60 : 0;
     }
-    store.attendance.push({
+    await upsertAttendance([{
       date,
       employeeId,
       name: employee.name,
@@ -340,9 +332,7 @@ export default async function handler(req, res) {
       checkOutTime: existing?.checkOutTime || "",
       lateMinutes: lateMin,
       earlyMinutes: existing?.earlyMinutes || 0,
-    });
-
-    await saveAttendance(store.attendance);
+    }]);
     await appendHistory([{
       at: new Date().toISOString(),
       action: oldLabel ? "Белгі өзгерді" : "Белгі қойылды",
@@ -352,8 +342,10 @@ export default async function handler(req, res) {
       oldLabel,
       newLabel: label,
     }]);
-    await rebuildSummary(store);
-    res.status(200).json(publicState(store));
+    invalidateStoreCache();
+    const freshStore = await loadStore();
+    await rebuildSummary(freshStore);
+    res.status(200).json(publicState(freshStore));
   } catch (error) {
     res.status(500).json({ error: `Белгі сақталмады: ${error.message}` });
   }

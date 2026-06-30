@@ -1,4 +1,4 @@
-import { loadStore, publicState, rebuildSummary, saveAttendance, saveEmployees } from "./_lib/sheets.js";
+import { invalidateStoreCache, loadStore, publicState, rebuildSummary, saveAttendance, saveEmployees } from "./_lib/sheets.js";
 
 export default async function handler(req, res) {
   try {
@@ -6,6 +6,7 @@ export default async function handler(req, res) {
       res.status(405).json({ error: "Method not allowed" });
       return;
     }
+    invalidateStoreCache();
     const store = await loadStore();
     await saveEmployees(store.employees);
     await saveAttendance(store.attendance);
