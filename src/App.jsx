@@ -1912,13 +1912,21 @@ function RegistrationScreen({ isDark, userId, onSent }) {
 
 function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh }) {
   const employee = data.employee;
+  // todayRow әрқашан НАҚТЫ бүгіннен (data — тірі жаңартылатын проп) — өткен айды
+  // ашқанда да КІРУ/ШЫҒУ батырмасы дұрыс күйде тұруы үшін.
   const todayRow = data.todayRow;
-  const counts = data.counts || { present: 0, half: 0, absent: 0, dayoff: 0 };
-  const hours = data.hours || { totalDays: 0, totalHours: 0 };
-  const salary = data.salary || { monthlySalary: 0, workedEquivalentDays: 0, totalHours: 0, advanceTotal: 0, earned: 0, net: 0 };
-  const advanceTotal = data.advanceTotal || 0;
   const broadcasts = data.broadcasts || [];
-  const month = data.month || "";
+  const currentMonth = data.month || "";
+
+  // Ай бойынша көрсетілетін дерек: өткен ай таңдалса — viewData, әйтпесе тірі data.
+  const [viewData, setViewData] = useState(null);
+  const [monthLoading, setMonthLoading] = useState(false);
+  const view = viewData || data;
+  const counts = view.counts || { present: 0, half: 0, absent: 0, dayoff: 0 };
+  const hours = view.hours || { totalDays: 0, totalHours: 0 };
+  const salary = view.salary || { monthlySalary: 0, workedEquivalentDays: 0, totalHours: 0, advanceTotal: 0, earned: 0, net: 0 };
+  const advanceTotal = view.advanceTotal || 0;
+  const month = view.month || currentMonth;
 
   const [now, setNow] = useState(() => new Date());
   const [busy, setBusy] = useState(false);
@@ -1928,6 +1936,30 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+
+  function shiftMonth(m, delta) {
+    const [y, mm] = String(m).split("-").map(Number);
+    const d = new Date(y, (mm - 1) + delta, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  async function loadMonth(targetMonth) {
+    if (monthLoading || targetMonth > currentMonth) return;
+    // Ағымдағы айға қайтсақ — тірі data-ны қолданамыз (viewData тазаланады).
+    if (targetMonth === currentMonth) { setViewData(null); haptic("light"); return; }
+    haptic("light");
+    setMonthLoading(true);
+    try {
+      const me = await api(`/api/me?full=1&userId=${encodeURIComponent(userId)}&month=${targetMonth}`);
+      setViewData(me);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Ай жүктелмеді" });
+      setMessageOpen(true);
+    } finally {
+      setMonthLoading(false);
+    }
+  }
+  const isCurrentMonth = month >= currentMonth;
 
   async function downloadMyPdf() {
     if (pdfBusy) return;
@@ -2051,11 +2083,11 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const monthDays = useMemo(() => {
     const map = {};
     const labelToStatus = { "Жұмыста": "present", "Жарты күн": "half", "Командировка": "business_trip", "Жоқ": "absent", "Демалыс": "dayoff" };
-    for (const row of data.ownAttendance || []) {
+    for (const row of view.ownAttendance || []) {
       map[row.date.slice(-2)] = labelToStatus[row.label] || "";
     }
     return map;
-  }, [data.ownAttendance]);
+  }, [view.ownAttendance]);
 
   const daysInMonth = useMemo(() => {
     if (!month) return 31;
@@ -2264,7 +2296,7 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
                 {advanceTotal.toLocaleString("kk-KZ")} ₸
               </p>
               <p className={cx("text-[11px] font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-                {(data.ownAdvances || []).length} жазба
+                {(view.ownAdvances || []).length} жазба
               </p>
             </div>
           </div>
@@ -2311,9 +2343,39 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
           )}
 
           <div className="mt-5">
-            <p className={cx("mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-              <CalendarDays className="size-3.5" /> Менің табелім ({month})
-            </p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className={cx("flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+                <CalendarDays className="size-3.5" /> Менің табелім ({month})
+              </p>
+              <div className="flex items-center gap-1.5">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => loadMonth(shiftMonth(month, -1))}
+                  disabled={monthLoading}
+                  className={cx("grid size-7 place-items-center rounded-full disabled:opacity-40", isDark ? "bg-white/10 text-slate-300" : "bg-[#eef2f8] text-[#5b6680]")}
+                  aria-label="Алдыңғы ай"
+                >
+                  <ChevronLeft className="size-4" />
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => loadMonth(shiftMonth(month, 1))}
+                  disabled={monthLoading || isCurrentMonth}
+                  className={cx("grid size-7 place-items-center rounded-full disabled:opacity-40", isDark ? "bg-white/10 text-slate-300" : "bg-[#eef2f8] text-[#5b6680]")}
+                  aria-label="Келесі ай"
+                >
+                  <ChevronRight className="size-4" />
+                </motion.button>
+              </div>
+            </div>
+            {!isCurrentMonth && (
+              <button
+                onClick={() => loadMonth(currentMonth)}
+                className={cx("mb-2 w-full rounded-[12px] px-3 py-1.5 text-[11px] font-black", isDark ? "bg-indigo-500/15 text-indigo-300" : "bg-indigo-50 text-indigo-600")}
+              >
+                ↩︎ Ағымдағы айға қайту ({currentMonth})
+              </button>
+            )}
             <div className={cx("rounded-[18px] p-3", isDark ? "bg-white/5" : "bg-white shadow")}>
               <div className="grid grid-cols-7 gap-1">
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {

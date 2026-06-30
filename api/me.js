@@ -305,13 +305,18 @@ export default async function handler(req, res) {
     }
 
     const today = todayInTashkent();
-    const month = today.slice(0, 7);
+    // Жұмысшы өткен айларды да қарай алады: ?month=YYYY-MM. Болмаса — ағымдағы ай.
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : today.slice(0, 7);
 
     const ownAttendance = store.attendance.filter(
       (row) => row.employeeId === employee.id && row.date.startsWith(month),
     );
 
-    const todayRow = ownAttendance.find((row) => row.date === today) || null;
+    // todayRow әрқашан НАҚТЫ бүгінге сүйенеді (қаралған айға тәуелсіз) — КІРУ/ШЫҒУ
+    // батырмасы өткен айды ашқанда да дұрыс күйде тұруы үшін.
+    const todayRow = [...store.attendance].reverse().find(
+      (row) => row.employeeId === employee.id && row.date === today,
+    ) || null;
     const ownAdvances = (store.advances || []).filter(
       (adv) => adv.employeeId === employee.id && (adv.date || "").startsWith(month),
     );
