@@ -223,6 +223,7 @@ function App() {
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [manualCheckoutOpen, setManualCheckoutOpen] = useState(false);
+  const [setTimesOpen, setSetTimesOpen] = useState(false);
   const [tripStart, setTripStart] = useState("");
   const [tripEnd, setTripEnd] = useState("");
   const [accessState, setAccessState] = useState("checking");
@@ -230,8 +231,6 @@ function App() {
   const [tgUserId, setTgUserId] = useState("");
   const [tgPhotoUrl, setTgPhotoUrl] = useState("");
   const [tgFirstName, setTgFirstName] = useState("");
-  // NFC-стикер арқылы ашылды ма? (startapp=checkin) — авто-КІРУ үшін
-  const [autoCheckin, setAutoCheckin] = useState(false);
 
   const employeeListRef = useRef(null);
   const swipeStartRef = useRef(null);
@@ -295,19 +294,6 @@ function App() {
         })();
         setTgPhotoUrl(userInfo?.photo_url || "");
         setTgFirstName(userInfo?.first_name || "");
-        // NFC-стикер сілтемесі: https://t.me/BOT/app?startapp=checkin
-        // Телефон стикерге тигенде Telegram осы параметрмен ашады → авто-КІРУ.
-        try {
-          let startParam = tg?.initDataUnsafe?.start_param || "";
-          if (!startParam && tg?.initData) {
-            startParam = new URLSearchParams(tg.initData).get("start_param") || "";
-          }
-          if (!startParam && typeof window !== "undefined") {
-            const url = new URL(window.location.href);
-            startParam = url.searchParams.get("tgWebAppStartParam") || url.searchParams.get("startapp") || "";
-          }
-          if (String(startParam).toLowerCase() === "checkin") setAutoCheckin(true);
-        } catch {}
         if (!userId) {
           // initData дайын болмады — Telegram-нан тыс ашылған шығар
           setAccessState("no-telegram");
@@ -592,6 +578,23 @@ function App() {
     }
   }
 
+  async function setTimes(checkInTime, checkOutTime) {
+    if (!selected) return;
+    const next = await api("/api/attendance", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "set-times",
+        date: selectedDate,
+        employeeId: selected.id,
+        checkInTime,
+        checkOutTime,
+      }),
+    });
+    setState(next);
+    haptic("success");
+    showToast("success", `${selected.name}: уақыт түзетілді (${checkInTime}${checkOutTime ? `–${checkOutTime}` : ""})`);
+  }
+
   async function markAllPresent() {
     if (isFutureDate) {
       haptic("error");
@@ -772,7 +775,6 @@ function App() {
         data={workerData}
         userId={tgUserId}
         photoUrl={tgPhotoUrl}
-        autoCheckin={autoCheckin}
         onRefresh={refreshWorker}
       />
     );
@@ -1122,14 +1124,24 @@ function App() {
                 {syncState === "syncing" ? <Clock3 className="size-5 animate-spin" /> : syncState === "done" ? <Check className="size-5" /> : <FileSpreadsheet className="size-5" />}
               </motion.button>
             </div>
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={() => { haptic("light"); setManualCheckoutOpen(true); }}
-              disabled={pendingStatus}
-              className={cx("mt-2 flex w-full items-center justify-center gap-2 rounded-[20px] px-4 py-3 text-sm font-black ring-1 disabled:opacity-50", isDark ? "bg-white/5 text-emerald-300 ring-emerald-400/30" : "bg-emerald-50 text-emerald-700 ring-emerald-200")}
-            >
-              🚪 Қолмен шығу қою
-            </motion.button>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={() => { haptic("light"); setManualCheckoutOpen(true); }}
+                disabled={pendingStatus}
+                className={cx("flex items-center justify-center gap-1.5 rounded-[20px] px-3 py-3 text-sm font-black ring-1 disabled:opacity-50", isDark ? "bg-white/5 text-emerald-300 ring-emerald-400/30" : "bg-emerald-50 text-emerald-700 ring-emerald-200")}
+              >
+                🚪 Қолмен шығу
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={() => { haptic("light"); setSetTimesOpen(true); }}
+                disabled={pendingStatus || isFutureDate}
+                className={cx("flex items-center justify-center gap-1.5 rounded-[20px] px-3 py-3 text-sm font-black ring-1 disabled:opacity-50", isDark ? "bg-white/5 text-indigo-300 ring-indigo-400/30" : "bg-indigo-50 text-indigo-700 ring-indigo-200")}
+              >
+                🕐 Уақытты түзету
+              </motion.button>
+            </div>
           </section>
         </section>
       </section>
@@ -1163,6 +1175,20 @@ function App() {
               onSubmit={async (time) => {
                 await manualCheckout(time);
                 setManualCheckoutOpen(false);
+              }}
+            />
+          </Modal>
+        )}
+
+        {setTimesOpen && selected && (
+          <Modal isDark={isDark} title={`🕐 ${selected.name} — уақытты түзету`} onClose={() => setSetTimesOpen(false)}>
+            <SetTimesForm
+              isDark={isDark}
+              employeeName={selected.name}
+              date={selectedDate}
+              onSubmit={async (checkInTime, checkOutTime) => {
+                await setTimes(checkInTime, checkOutTime);
+                setSetTimesOpen(false);
               }}
             />
           </Modal>
@@ -1883,7 +1909,7 @@ function RegistrationScreen({ isDark, userId, onSent }) {
   );
 }
 
-function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, autoCheckin, onRefresh }) {
+function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh }) {
   const employee = data.employee;
   const todayRow = data.todayRow;
   const counts = data.counts || { present: 0, half: 0, absent: 0, dayoff: 0 };
@@ -1901,7 +1927,6 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, autoChecki
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const autoCheckinDone = useRef(false);
 
   async function downloadMyPdf() {
     if (pdfBusy) return;
@@ -2021,16 +2046,6 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, autoChecki
       setBusy(false);
     }
   }
-
-  // NFC-стикерге тигенде (startapp=checkin) — авто-КІРУ.
-  // Тек бір рет, бүгін кіру белгісі әлі жоқ болса ғана іске қосамыз.
-  useEffect(() => {
-    if (!autoCheckin || autoCheckinDone.current) return;
-    if (stage !== "idle" || adminStatusLabel) return;
-    autoCheckinDone.current = true;
-    performAction("worker-checkin");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoCheckin, stage, adminStatusLabel]);
 
   const monthDays = useMemo(() => {
     const map = {};
@@ -2438,6 +2453,61 @@ function ManualCheckoutForm({ isDark, employeeName, date, onSubmit }) {
         className="w-full rounded-[20px] bg-emerald-600 px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(5,150,105,0.24)] disabled:opacity-50"
       >
         {saving ? "Сақталуда..." : "🚪 Шығу қою"}
+      </motion.button>
+    </div>
+  );
+}
+
+function SetTimesForm({ isDark, employeeName, date, onSubmit }) {
+  const [checkIn, setCheckIn] = useState("09:00");
+  const [checkOut, setCheckOut] = useState("18:00");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (saving) return;
+    if (!checkIn) { setError("Кіру уақытын қойыңыз"); return; }
+    if (checkOut && checkOut <= checkIn) { setError("Шығу уақыты Кіруден кейін болуы керек"); return; }
+    setError("");
+    haptic("medium");
+    setSaving(true);
+    try {
+      await onSubmit(checkIn, checkOut);
+    } catch (err) {
+      setError(err.message || "Сақталмады");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className={cx("text-xs font-bold", isDark ? "text-slate-400" : "text-[#7a86a0]")}>
+        Жазба қате болса (мыс. кешіктіру дұрыс емес), нақты Кіру және Шығу уақытын қойыңыз. Кешіктіру/ерте кету автоматты қайта есептеледі.
+      </p>
+      <div className={cx("rounded-[16px] px-3 py-2.5 text-xs font-bold", isDark ? "bg-white/5 text-slate-300" : "bg-[#f4f7fc] text-[#5b6680]")}>
+        <p>Қызметкер: <b>{employeeName}</b></p>
+        <p>Күні: <b>{date}</b></p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className={cx("form-label", isDark && "form-label-dark")}>Кіру уақыты</span>
+          <input type="time" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} className={cx("form-input", isDark && "form-input-dark")} />
+        </label>
+        <label className="block">
+          <span className={cx("form-label", isDark && "form-label-dark")}>Шығу уақыты</span>
+          <input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} className={cx("form-input", isDark && "form-input-dark")} />
+        </label>
+      </div>
+      <p className={cx("text-[10px] font-bold", isDark ? "text-slate-500" : "text-[#94a3b8]")}>Шығуды бос қалдыруға болады — тек Кіру қойылады.</p>
+      {error && <InlineError text={error} />}
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={submit}
+        disabled={saving || !checkIn}
+        className="w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50"
+      >
+        {saving ? "Сақталуда..." : "🕐 Уақытты сақтау"}
       </motion.button>
     </div>
   );

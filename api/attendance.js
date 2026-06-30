@@ -256,6 +256,66 @@ export default async function handler(req, res) {
       return;
     }
 
+    // Әкімші нақты Кіру/Шығу уақытын қолмен түзетеді (мыс. бұзылған жазбаны).
+    if (action === "set-times") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !employee) {
+        res.status(400).json({ error: "Күн немесе қызметкер ID қате" });
+        return;
+      }
+      assertNotFutureDate(date);
+      const checkInTime = String(body.checkInTime || "").trim();
+      const checkOutTime = String(body.checkOutTime || "").trim();
+      const timeRe = /^\d{1,2}:\d{2}$/;
+      if (checkInTime && !timeRe.test(checkInTime)) {
+        res.status(400).json({ error: "Кіру уақыты қате (мыс. 09:00)" });
+        return;
+      }
+      if (checkOutTime && !timeRe.test(checkOutTime)) {
+        res.status(400).json({ error: "Шығу уақыты қате (мыс. 18:00)" });
+        return;
+      }
+      if (checkInTime && checkOutTime && timeToMinutes(checkOutTime) <= timeToMinutes(checkInTime)) {
+        res.status(400).json({ error: "Шығу уақыты Кіруден кейін болуы керек" });
+        return;
+      }
+      const existing = [...store.attendance].reverse().find((row) => row.date === date && row.employeeId === employeeId);
+      const inTotal = timeToMinutes(checkInTime);
+      const lateMinutes = checkInTime && inTotal > 9 * 60 ? inTotal - 9 * 60 : 0;
+      const outTotal = timeToMinutes(checkOutTime);
+      const earlyMinutes = checkOutTime && outTotal < WORK_END_HOUR * 60 ? WORK_END_HOUR * 60 - outTotal : 0;
+      // Кіру қойылса — күн «Жұмыста» болады (бар белгіні сақтаймыз: жарты күн т.б.).
+      const label = (existing?.label && existing.label !== "Жоқ" && existing.label !== "Демалыс")
+        ? existing.label
+        : (checkInTime ? statusToLabel("present") : (existing?.label || ""));
+      await upsertAttendance([{
+        date,
+        employeeId,
+        name: employee.name,
+        role: employee.role || "Қызметкер",
+        label,
+        time: checkInTime || existing?.time || "",
+        updatedAt: new Date().toISOString(),
+        checkInTime,
+        checkOutTime,
+        lateMinutes,
+        earlyMinutes,
+      }]);
+      await appendHistory([{
+        at: new Date().toISOString(),
+        action: "Уақыт түзетілді",
+        employeeId,
+        name: employee.name,
+        date,
+        oldLabel: existing ? `Кіру: ${existing.checkInTime || "—"} / Шығу: ${existing.checkOutTime || "—"}` : "",
+        newLabel: `Кіру: ${checkInTime || "—"} / Шығу: ${checkOutTime || "—"}`,
+      }]);
+      invalidateStoreCache();
+      const fresh = await loadStore();
+      await rebuildSummary(fresh);
+      res.status(200).json(publicState(fresh));
+      return;
+    }
+
     if (action === "checkout") {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !employee) {
         res.status(400).json({ error: "Күн немесе қызметкер ID қате" });
