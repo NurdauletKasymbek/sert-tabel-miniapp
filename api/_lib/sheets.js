@@ -31,6 +31,11 @@ function scheduleToLabel(schedule) {
   return SCHEDULE_LABELS[schedule] || SCHEDULE_LABELS.standard;
 }
 const ATTENDANCE_HEADERS = ["Күн", "Қызметкер ID", "Аты-жөні", "Рөлі", "Белгі", "Уақыт", "Жаңартылды", "Кіру", "Шығу", "Кешіктіру(мин)", "Ерте кету(мин)"];
+// Табель — append-only журнал: жазбалар тек қосылады, ешқашан тазаланбайды.
+// Бір (күн+қызметкер) бойынша бірнеше жол болуы мүмкін; оқығанда ең соңғы
+// (updatedAt бойынша) жазба ғана ағымдағы деп алынады. Ауқым үлкен — журнал
+// жылдар бойы өспейді (sync кезінде ықшамдалады).
+const ATTENDANCE_RANGE = "A2:K100000";
 const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Рөлі", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Барлығы белгіленген", "Жалпы күн", "Жалпы сағат"];
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
@@ -393,6 +398,21 @@ function rowToAttendance(row) {
   };
 }
 
+// Append-only журналдан ағымдағы күйді шығару: әр (күн+қызметкер) бойынша
+// updatedAt ең жаңа жазба қалады. updatedAt тең/жоқ болса — кейінгі қосылған
+// жол (массивте соңғысы) жеңеді.
+function dedupeAttendance(rows) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = `${row.date}__${row.employeeId}`;
+    const prev = map.get(key);
+    if (!prev || String(row.updatedAt || "") >= String(prev.updatedAt || "")) {
+      map.set(key, row);
+    }
+  }
+  return [...map.values()];
+}
+
 function labelToStatus(label) {
   return Object.entries(STATUSES).find(([, meta]) => meta.label === label)?.[0] || "";
 }
@@ -408,7 +428,7 @@ export async function loadStore() {
   await ensureSheets();
   const [employeeRows, attendanceRows, advanceRows, adminRows, historyRows] = await Promise.all([
     getValues(a1(SHEETS.employees, "A2:I1000")),
-    getValues(a1(SHEETS.attendance, "A2:K5000")),
+    getValues(a1(SHEETS.attendance, ATTENDANCE_RANGE)),
     getValues(a1(SHEETS.advances, "A2:D5000")),
     getValues(a1(SHEETS.admins, "A2:C200")),
     getValues(a1(SHEETS.history, "A2:G5000")),
@@ -422,7 +442,7 @@ export async function loadStore() {
       }
       return rowToEmployee(row);
     });
-  const attendance = attendanceRows.filter((row) => row[0] && row[1]).map(rowToAttendance);
+  const attendance = dedupeAttendance(attendanceRows.filter((row) => row[0] && row[1]).map(rowToAttendance));
   const employeeByName = new Map(employees.map((employee) => [employee.name.trim().toLowerCase(), employee.id]));
   const advances = advanceRows.filter((row) => row[0] && row[1]).map((row) => {
     const name = String(row[1] || "").trim();
@@ -704,46 +724,50 @@ export async function saveEmployees(employees) {
   if (employees.length) await updateRange(a1(SHEETS.employees, "A2:I1000"), employees.map(employeeToRow));
 }
 
+function attendanceToRow(row) {
+  return [
+    row.date,
+    row.employeeId,
+    row.name,
+    row.role,
+    row.label,
+    row.time,
+    row.updatedAt,
+    row.checkInTime || "",
+    row.checkOutTime || "",
+    row.lateMinutes || "",
+    row.earlyMinutes || "",
+  ];
+}
+
+// Тек ықшамдау/sync үшін: бүкіл табельді тазалап, ағымдағы (дедуп) күйді
+// қайта жазады. Бұл деструктивті — тек қолмен sync кезінде шақырылады.
 export async function saveAttendance(attendance) {
   storeCache = null;
   await ensureSheets();
-  await clearRange(a1(SHEETS.attendance, "A2:K5000"));
+  await clearRange(a1(SHEETS.attendance, ATTENDANCE_RANGE));
   if (attendance.length) {
-    await updateRange(a1(SHEETS.attendance, "A2:K5000"), attendance.map((row) => [
-      row.date,
-      row.employeeId,
-      row.name,
-      row.role,
-      row.label,
-      row.time,
-      row.updatedAt,
-      row.checkInTime || "",
-      row.checkOutTime || "",
-      row.lateMinutes || "",
-      row.earlyMinutes || "",
-    ]));
+    await updateRange(a1(SHEETS.attendance, ATTENDANCE_RANGE), attendance.map(attendanceToRow));
   }
 }
 
-// Қауіпсіз жазу: бүкіл парақты ескі (кэштелген) көшірмеден қайта жазудың
-// орнына, дәл жазар алдында парақты ЖАҢА оқып, тек өзгерген жолдарды
-// (date+employeeId кілті бойынша) біріктіреді. Осылайша бір уақытта басқан
-// қызметкерлердің жазбалары бір-бірін өшірмейді (lost-update болмайды).
-//   changed    — толық пішімдегі attendance жол объектілері (қосылады/жаңарады)
-//   removeKeys — өшірілетін "${date}__${employeeId}" кілттер тізімі
-export async function upsertAttendance(changed = [], removeKeys = []) {
+// ҚАУІПСІЗ ЖАЗУ (append-only). Парақты ЕШҚАШАН тазаламаймыз — тек жаңа жолды
+// Google Sheets :append арқылы атомарлы түрде соңына қосамыз. Сондықтан бір
+// уақытта басқан екі қызметкердің жазбасы бір-бірін физикалық тұрғыда өшіре
+// алмайды (lost-update мүмкін емес). Оқығанда dedupeAttendance ескі жолдарды
+// көлеңкелеп, ең соңғы (updatedAt) жазбаны ғана ағымдағы деп алады.
+//   changed — толық пішімдегі attendance жол объектілері
+export async function upsertAttendance(changed = []) {
+  if (!changed.length) return;
   invalidateStoreCache();
   await ensureSheets();
-  const current = (await getValues(a1(SHEETS.attendance, "A2:K5000")))
-    .filter((row) => row[0] && row[1])
-    .map(rowToAttendance);
-  const map = new Map();
-  for (const row of current) map.set(`${row.date}__${row.employeeId}`, row);
-  for (const key of removeKeys) map.delete(key);
-  for (const row of changed) map.set(`${row.date}__${row.employeeId}`, row);
-  const merged = [...map.values()];
-  await saveAttendance(merged);
-  return merged;
+  // valueInputOption=USER_ENTERED + insertDataOption=INSERT_ROWS — кесте соңына
+  // атомарлы қосу. Бірнеше параллель :append шақыруы әрқайсысына бөлек жол береді.
+  await sheetsFetch(
+    `/values/${encodeURIComponent(a1(SHEETS.attendance, ATTENDANCE_RANGE))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    { method: "POST", body: JSON.stringify({ majorDimension: "ROWS", values: changed.map(attendanceToRow) }) },
+  );
+  invalidateStoreCache();
 }
 
 export async function appendHistory(rows) {
