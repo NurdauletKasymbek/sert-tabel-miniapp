@@ -141,7 +141,7 @@ export default async function handler(req, res) {
             ? `Әлі белгі қойылмаған: <b>${unmarked.length}</b>\n${unmarked.map((e) => `- ${e.name}`).join("\n")}`
             : "Барлығы белгіленген ✅",
           "",
-          "Бұл — тексеру хабары (нақты ескерту күн сайын 18:00-де келеді).",
+          "Бұл — тексеру хабары (нақты ескерту күн сайын 09:30-да келеді).",
         ].join("\n");
         await sendTelegramMessage(to, text, { reply_markup: miniAppKeyboard() });
         result = { type: "test", sentTo: to, unmarked: unmarked.length, date: state.today };
