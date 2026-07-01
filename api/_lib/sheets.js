@@ -338,8 +338,14 @@ async function ensureHeader(range, headers) {
   }
 }
 
-async function getValues(range) {
-  const result = await sheetsFetch(`/values/${encodeURIComponent(range)}`);
+async function getValues(range, { unformatted = false } = {}) {
+  // unformatted=true → Google Sheets шикі мәнді қайтарады (күн/уақыт — сериялық
+  // сан, сан — нақты сан). Осылайша ұяшық форматы (Число/Дата) немесе кестенің
+  // тіл баптауы оқуға әсер етпейді. Күн/уақытты normalizeSheetDate/Time қалпына
+  // келтіреді. Форматталған оқуда "2026-07-01" кездейсоқ "46204"-ке айналып,
+  // барлық белгі "белгіленбеген" болып көрінетін негізгі ақау осылай жойылады.
+  const suffix = unformatted ? "?valueRenderOption=UNFORMATTED_VALUE" : "";
+  const result = await sheetsFetch(`/values/${encodeURIComponent(range)}${suffix}`);
   return result.values || [];
 }
 
@@ -382,17 +388,56 @@ function employeeToRow(employee) {
   ];
 }
 
+function normalizeSheetDate(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value).trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const serial = Number(s);
+    if (!Number.isFinite(serial) || serial <= 0) return s;
+    const ms = Math.round((serial - 25569) * 86400000);
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toISOString().slice(0, 10);
+  }
+  return s;
+}
+
+// Уақытты "HH:MM" пішіміне келтіру. Google Sheets уақытты тәуліктің үлесі
+// ретінде сақтайды (0.5 = 12:00). unformatted оқығанда "0.37083333" сияқты сан
+// келеді — оны "08:54"-ке айналдырамыз. "08:54"/"8:54:00" мәтіні өз күйінде.
+function normalizeSheetTime(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value).trim();
+  if (!s) return "";
+  if (/^\d{1,2}:\d{2}/.test(s)) {
+    const [h, m] = s.split(":");
+    return `${String(Number(h) || 0).padStart(2, "0")}:${String(Number(m) || 0).padStart(2, "0")}`;
+  }
+  if (/^\d*\.?\d+$/.test(s)) {
+    const num = Number(s);
+    if (!Number.isFinite(num)) return "";
+    const frac = num - Math.floor(num);
+    const totalMin = Math.round(frac * 24 * 60);
+    const hh = Math.floor(totalMin / 60) % 24;
+    const mm = totalMin % 60;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  return s;
+}
+
 function rowToAttendance(row) {
   return {
-    date: row[0],
-    employeeId: row[1],
+    date: normalizeSheetDate(row[0]),
+    employeeId: String(row[1] ?? ""),
     name: row[2] || "",
     role: row[3] || "",
     label: row[4] || "",
-    time: row[5] || "",
-    updatedAt: row[6] || "",
-    checkInTime: row[7] || "",
-    checkOutTime: row[8] || "",
+    time: normalizeSheetTime(row[5]),
+    updatedAt: String(row[6] ?? ""),
+    checkInTime: normalizeSheetTime(row[7]),
+    checkOutTime: normalizeSheetTime(row[8]),
     lateMinutes: row[9] ? Number(row[9]) : 0,
     earlyMinutes: row[10] ? Number(row[10]) : 0,
   };
@@ -427,11 +472,11 @@ export async function loadStore() {
   }
   await ensureSheets();
   const [employeeRows, attendanceRows, advanceRows, adminRows, historyRows] = await Promise.all([
-    getValues(a1(SHEETS.employees, "A2:I1000")),
-    getValues(a1(SHEETS.attendance, ATTENDANCE_RANGE)),
-    getValues(a1(SHEETS.advances, "A2:D5000")),
-    getValues(a1(SHEETS.admins, "A2:C200")),
-    getValues(a1(SHEETS.history, "A2:G5000")),
+    getValues(a1(SHEETS.employees, "A2:I1000"), { unformatted: true }),
+    getValues(a1(SHEETS.attendance, ATTENDANCE_RANGE), { unformatted: true }),
+    getValues(a1(SHEETS.advances, "A2:D5000"), { unformatted: true }),
+    getValues(a1(SHEETS.admins, "A2:C200"), { unformatted: true }),
+    getValues(a1(SHEETS.history, "A2:G5000"), { unformatted: true }),
   ]);
   const employees = employeeRows
     .filter((row) => row[0] || row[1])
@@ -447,7 +492,7 @@ export async function loadStore() {
   const advances = advanceRows.filter((row) => row[0] && row[1]).map((row) => {
     const name = String(row[1] || "").trim();
     return {
-      date: String(row[0] || "").trim(),
+      date: normalizeSheetDate(row[0]),
       employeeId: employeeByName.get(name.toLowerCase()) || "",
       name,
       amount: Number(String(row[2] || "0").replace(/[^\d.-]/g, "")) || 0,
