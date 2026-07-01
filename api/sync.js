@@ -1,4 +1,4 @@
-import { invalidateStoreCache, loadStore, publicState, rebuildSummary, saveAttendance, saveEmployees } from "./_lib/sheets.js";
+import { applyBasicFormatting, invalidateStoreCache, loadStore, publicState, rebuildSummary, saveAttendance, saveEmployees } from "./_lib/sheets.js";
 
 export default async function handler(req, res) {
   try {
@@ -11,6 +11,7 @@ export default async function handler(req, res) {
     await saveEmployees(store.employees);
     await saveAttendance(store.attendance);
     await rebuildSummary(store);
+    await applyBasicFormatting();
     res.status(200).json(publicState(store));
   } catch (error) {
     res.status(500).json({ error: `Google Sheets жаңартылмады: ${error.message}` });
