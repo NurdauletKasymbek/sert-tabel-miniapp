@@ -470,7 +470,10 @@ export async function loadStore() {
   if (storeCache && Date.now() - storeCache.at < STORE_CACHE_TTL_MS) {
     return storeCache.data;
   }
-  await ensureSheets();
+  // ensureSheets ЫСТЫҚ ЖОЛДА шақырылмайды — парақтар бұрыннан бар, оқу оларды
+  // жасауды қажет етпейді. ensureSheets (парақ/тақырып тексеру) тек setup
+  // операцияларында (sync, saveEmployees, saveAttendance) орындалады. Бұл әр
+  // оқуда ~8 артық Sheets API сұранысын үнемдеп, квота асуын болдырмайды.
   const [employeeRows, attendanceRows, advanceRows, adminRows, historyRows] = await Promise.all([
     getValues(a1(SHEETS.employees, "A2:I1000"), { unformatted: true }),
     getValues(a1(SHEETS.attendance, ATTENDANCE_RANGE), { unformatted: true }),
@@ -805,7 +808,7 @@ export async function saveAttendance(attendance) {
 export async function upsertAttendance(changed = []) {
   if (!changed.length) return;
   invalidateStoreCache();
-  await ensureSheets();
+  // ensureSheets шақырылмайды — Табель парағы бұрыннан бар. Квотаны үнемдейміз.
   // valueInputOption=USER_ENTERED + insertDataOption=INSERT_ROWS — кесте соңына
   // атомарлы қосу. Бірнеше параллель :append шақыруы әрқайсысына бөлек жол береді.
   await sheetsFetch(
@@ -818,7 +821,7 @@ export async function upsertAttendance(changed = []) {
 export async function appendHistory(rows) {
   if (!rows.length) return;
   storeCache = null;
-  await ensureSheets();
+  // ensureSheets шақырылмайды — Журнал парағы бұрыннан бар. Квотаны үнемдейміз.
   const existing = await getValues(a1(SHEETS.history, "A2:G5000"));
   await updateRange(a1(SHEETS.history, `A${existing.length + 2}:G5000`), rows.map((row) => [
     row.at,
@@ -859,7 +862,8 @@ export async function rebuildSummary(store) {
   }
   await clearRange(a1(SHEETS.reports, "A1:K2000"));
   await updateRange(a1(SHEETS.reports, "A1:K2000"), rows);
-  await applyBasicFormatting();
+  // applyBasicFormatting ЫСТЫҚ ЖОЛДА шақырылмайды — тақырып/жасыру бір рет
+  // орнатылады да, өзгермейді. Тек setup (sync) кезінде қолданылады.
 }
 
 export function currentTime() {
@@ -895,7 +899,7 @@ export async function appendAdvance(date, employeeName, amount, note) {
   await updateRange(a1(SHEETS.advances, `A${nextRow}:D${nextRow}`), [[date, employeeName, amount, note || ""]]);
 }
 
-async function applyBasicFormatting() {
+export async function applyBasicFormatting() {
   const spreadsheet = await sheetsFetch("?fields=sheets.properties(sheetId,title,hidden)");
   const ids = Object.fromEntries(spreadsheet.sheets.map((sheet) => [sheet.properties.title, sheet.properties.sheetId]));
   const visibleSheets = new Set([SHEETS.employees, SHEETS.attendance, SHEETS.reports]);
