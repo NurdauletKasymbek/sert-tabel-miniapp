@@ -77,8 +77,14 @@ export default async function handler(req, res) {
       const wLat = Number(process.env.WORKPLACE_LAT);
       const wLon = Number(process.env.WORKPLACE_LON);
       const wRadius = Number(process.env.WORKPLACE_RADIUS_M || "10");
+      // Геолокация тексеруінен босатылған Telegram ID-лер (тестілеу/қашықтан
+      // белгілеу үшін). GEO_BYPASS_TELEGRAM_IDS env-те үтірмен беріледі —
+      // бұл ID-лер кез келген жерден КІРУ/ШЫҒУ баса алады.
+      const geoBypassIds = (process.env.GEO_BYPASS_TELEGRAM_IDS || "")
+        .split(",").map((s) => s.trim()).filter(Boolean);
+      const geoBypass = geoBypassIds.includes(telegramId);
       let outsideDistance = 0;
-      if (Number.isFinite(wLat) && Number.isFinite(wLon)) {
+      if (!geoBypass && Number.isFinite(wLat) && Number.isFinite(wLon)) {
         const dist = distanceMeters(wLat, wLon, lat, lon);
         outsideDistance = Math.round(dist);
         if (dist > wRadius) {
