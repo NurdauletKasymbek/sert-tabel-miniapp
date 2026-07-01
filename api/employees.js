@@ -24,6 +24,21 @@ export default async function handler(req, res) {
         res.status(200).json({ ...publicState(store), alreadyRegistered: true, employeeId: dup.id });
         return;
       }
+      // Аты бірдей, бірақ Telegram-сыз белсенді қызметкер бұрыннан бар болса —
+      // жаңа жазба жасамай, соған telegramId-ді байлаймыз. Осылайша қолмен
+      // қосылған адам кейін өзі Telegram арқылы тіркелгенде дубликат болмайды.
+      const sameName = store.employees.find(
+        (e) => e.status !== "archived"
+          && !String(e.telegramId || "").trim()
+          && e.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (sameName) {
+        sameName.telegramId = telegramId;
+        await saveEmployees(store.employees);
+        await appendHistory([{ at: new Date().toISOString(), action: "Telegram байланды", employeeId: sameName.id, name: sameName.name, date: "", oldLabel: "", newLabel: telegramId }]);
+        res.status(200).json({ ...publicState(store), boundExisting: true, employeeId: sameName.id });
+        return;
+      }
     }
     const schedule = body.schedule === "school-half" ? "school-half" : "standard";
     const employee = {
