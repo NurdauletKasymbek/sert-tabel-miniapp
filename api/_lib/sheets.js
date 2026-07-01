@@ -382,9 +382,25 @@ function employeeToRow(employee) {
   ];
 }
 
+function normalizeSheetDate(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value).trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const serial = Number(s);
+    if (!Number.isFinite(serial) || serial <= 0) return s;
+    const ms = Math.round((serial - 25569) * 86400000);
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toISOString().slice(0, 10);
+  }
+  return s;
+}
+
 function rowToAttendance(row) {
   return {
-    date: row[0],
+    date: normalizeSheetDate(row[0]),
     employeeId: row[1],
     name: row[2] || "",
     role: row[3] || "",
@@ -447,7 +463,7 @@ export async function loadStore() {
   const advances = advanceRows.filter((row) => row[0] && row[1]).map((row) => {
     const name = String(row[1] || "").trim();
     return {
-      date: String(row[0] || "").trim(),
+      date: normalizeSheetDate(row[0]),
       employeeId: employeeByName.get(name.toLowerCase()) || "",
       name,
       amount: Number(String(row[2] || "0").replace(/[^\d.-]/g, "")) || 0,
