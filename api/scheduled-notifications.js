@@ -77,6 +77,38 @@ async function sendDaily() {
   return { type: "daily", sentTo: ids.length, date: report.date, counts: report.counts };
 }
 
+// Таңертең (жұмыс басталар алдында) — әлі КІРУ баспаған жұмысшыларға еске салу.
+async function sendCheckinReminder() {
+  const store = await loadStore();
+  const today = todayDate();
+  const candidates = (store.employees || []).filter((e) => {
+    if (e.status === "archived") return false;
+    if (!String(e.telegramId || "").trim()) return false;
+    const todayRow = [...store.attendance].reverse().find(
+      (row) => row.date === today && row.employeeId === e.id,
+    );
+    if (todayRow?.checkInTime) return false; // бүгін кіріп қойған
+    // Әкімші демалыс/командировка/ауырып деп қойса — еске салудың қажеті жоқ.
+    if (["Демалыс", "Командировка", "Ауырып қалды"].includes(todayRow?.label || "")) return false;
+    return true;
+  });
+  if (!candidates.length) return { type: "checkin-reminder", skipped: "all_in", date: today };
+  const text = [
+    "🔔 <b>КІРУ басуды ұмытпаңыз!</b>",
+    "",
+    "Жұмыс сағат 09:00-де басталады.",
+    "Mini App-ты ашып, <b>📍 КІРУ</b> батырмасын басыңыз.",
+  ].join("\n");
+  let sent = 0;
+  for (const emp of candidates) {
+    try {
+      await sendTelegramMessage(emp.telegramId, text, { reply_markup: miniAppKeyboard() });
+      sent += 1;
+    } catch {}
+  }
+  return { type: "checkin-reminder", sentTo: sent, total: candidates.length, date: today };
+}
+
 async function sendCheckoutReminder() {
   const store = await loadStore();
   const today = todayDate();
@@ -156,13 +188,20 @@ export default async function handler(req, res) {
         result = { type: "test", sentTo: to, unmarked: unmarked.length, date: state.today };
       }
     }
+    else if (mode === "morning") {
+      // Таңертең (~08:55) жұмысшыларға КІРУ еске салу. Жексенбіде жіберілмейді.
+      result = isSundayLocal()
+        ? { type: "checkin-reminder", skipped: "sunday" }
+        : await sendCheckinReminder();
+    }
     else if (mode === "evening") {
-      // Белгі қойылмағандар ескертуі (жексенбіде келмейді) + ай соңы болса айлық есеп.
-      const reminder = isSundayLocal()
-        ? { type: "reminder", skipped: "sunday" }
-        : await sendReminder();
+      // Кешке (~17:55): жұмысшыға ШЫҒУ еске салу + әкімшіге белгіленбегендер
+      // + ай соңы болса айлық есеп. Жексенбіде жіберілмейді.
+      const sunday = isSundayLocal();
+      const checkout = sunday ? { type: "checkout-reminder", skipped: "sunday" } : await sendCheckoutReminder();
+      const reminder = sunday ? { type: "reminder", skipped: "sunday" } : await sendReminder();
       const monthly = isLastDay(todayDate()) ? await sendMonthly() : { type: "monthly", skipped: "not_last_day" };
-      result = { evening: true, reminder, monthly };
+      result = { evening: true, checkout, reminder, monthly };
     }
     else result = { skipped: "no_action_for_time", time };
 
