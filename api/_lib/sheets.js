@@ -799,22 +799,44 @@ export async function saveAttendance(attendance) {
   }
 }
 
-// ҚАУІПСІЗ ЖАЗУ (append-only). Парақты ЕШҚАШАН тазаламаймыз — тек жаңа жолды
-// Google Sheets :append арқылы атомарлы түрде соңына қосамыз. Сондықтан бір
-// уақытта басқан екі қызметкердің жазбасы бір-бірін физикалық тұрғыда өшіре
-// алмайды (lost-update мүмкін емес). Оқығанда dedupeAttendance ескі жолдарды
-// көлеңкелеп, ең соңғы (updatedAt) жазбаны ғана ағымдағы деп алады.
+// ОРНЫНДА ЖАҢАРТУ: әр (күн+қызметкер) бойынша кестеде БІР ғана жол болады.
+// Бар жол болса — сол жолды жаңартамыз (мыс. КІРУ жолының Шығу бағанын толтырамыз).
+// Болмаса — соңына бір жаңа жол қосамыз. Осылай астына қосарланған жол жазылмайды.
+// Әртүрлі қызметкерлер әртүрлі жолдарды өзгертеді — бір-біріне кедергі жоқ.
 //   changed — толық пішімдегі attendance жол объектілері
 export async function upsertAttendance(changed = []) {
   if (!changed.length) return;
   invalidateStoreCache();
-  // ensureSheets шақырылмайды — Табель парағы бұрыннан бар. Квотаны үнемдейміз.
-  // valueInputOption=USER_ENTERED + insertDataOption=INSERT_ROWS — кесте соңына
-  // атомарлы қосу. Бірнеше параллель :append шақыруы әрқайсысына бөлек жол береді.
-  await sheetsFetch(
-    `/values/${encodeURIComponent(a1(SHEETS.attendance, ATTENDANCE_RANGE))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-    { method: "POST", body: JSON.stringify({ majorDimension: "ROWS", values: changed.map(attendanceToRow) }) },
-  );
+  const raw = await getValues(a1(SHEETS.attendance, ATTENDANCE_RANGE), { unformatted: true });
+  const lastIndex = new Map();
+  raw.forEach((r, i) => {
+    if (!r[0] || !r[1]) return;
+    const a = rowToAttendance(r);
+    if (a.date && a.employeeId) lastIndex.set(`${a.date}|${a.employeeId}`, i);
+  });
+  const updates = [];
+  const toAppend = [];
+  for (const row of changed) {
+    const idx = lastIndex.get(`${row.date}|${row.employeeId}`);
+    if (idx !== undefined) {
+      const sheetRow = idx + 2; // A2 = деректің 1-жолы
+      updates.push({ range: a1(SHEETS.attendance, `A${sheetRow}:K${sheetRow}`), values: [attendanceToRow(row)] });
+    } else {
+      toAppend.push(row);
+    }
+  }
+  if (updates.length) {
+    await sheetsFetch("/values:batchUpdate", {
+      method: "POST",
+      body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: updates }),
+    });
+  }
+  if (toAppend.length) {
+    await sheetsFetch(
+      `/values/${encodeURIComponent(a1(SHEETS.attendance, ATTENDANCE_RANGE))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      { method: "POST", body: JSON.stringify({ majorDimension: "ROWS", values: toAppend.map(attendanceToRow) }) },
+    );
+  }
   invalidateStoreCache();
 }
 
