@@ -149,13 +149,13 @@ export default async function handler(req, res) {
           ? `⚠️ <b>${nEmp.name}</b> ${lateMin} минутқа кешікті (${nNow}) 🎫`
           : `✅ <b>${nEmp.name}</b> жұмысқа келді (${nNow}) 🎫`;
         await notifyAdmins(msgIn);
-        res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "in" });
+        res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "in" });
         return;
       }
 
       // Бүгін екеуі де белгіленген болса — қайталама тигізу
       if (nExisting.checkOutTime) {
-        res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "out", message: "Бүгін кіру-шығу белгіленген" });
+        res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "out", message: "Бүгін кіру-шығу белгіленген" });
         return;
       }
 
@@ -183,7 +183,7 @@ export default async function handler(req, res) {
         ? `⚠️ <b>${nEmp.name}</b> жұмыстан ${earlyMin} минут ерте (${nNow}) 🎫`
         : `✅ <b>${nEmp.name}</b> жұмыс күнін аяқтады (${nNow}) 🎫`;
       await notifyAdmins(msgOut);
-      res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "out" });
+      res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "out" });
       return;
     }
 
