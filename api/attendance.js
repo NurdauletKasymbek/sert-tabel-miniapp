@@ -1,11 +1,24 @@
 import { appendHistory, assertNotFutureDate, currentTime, invalidateStoreCache, loadStore, publicState, rebuildSummary, statusToLabel, todayDate, upsertAttendance, STATUSES } from "./_lib/sheets.js";
 
 const WORK_END_HOUR = 18;
+const TERMINAL_TZ = process.env.BOT_TIMEZONE || "Asia/Tashkent";
 
 function timeToMinutes(time) {
   if (!time) return 0;
   const [h, m] = String(time).split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
+}
+
+// Терминал жіберген ISO уақытты жергілікті күн/сағатқа айналдыру (офлайн сканға керек)
+function tsToDate(ts) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TERMINAL_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(ts));
+}
+function tsToTime(ts) {
+  return new Intl.DateTimeFormat("kk-KZ", {
+    timeZone: TERMINAL_TZ, hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(ts));
 }
 
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -112,8 +125,12 @@ export default async function handler(req, res) {
         return;
       }
 
-      const nToday = todayDate();
-      const nNow = currentTime();
+      // Офлайн: терминал жіберген нақты тигізу уақытын қолданамыз (кейін жіберілсе де дұрыс)
+      const validTs = body.timestamp && !Number.isNaN(new Date(body.timestamp).getTime());
+      const tapIso = validTs ? new Date(body.timestamp).toISOString() : new Date().toISOString();
+      const tapMs = new Date(tapIso).getTime();
+      const nToday = validTs ? tsToDate(body.timestamp) : todayDate();
+      const nNow = validTs ? tsToTime(body.timestamp) : currentTime();
       const nExisting = [...store.attendance].reverse().find(
         (row) => row.date === nToday && row.employeeId === nEmp.id,
       );
@@ -130,7 +147,7 @@ export default async function handler(req, res) {
           role: nEmp.role || "Қызметкер",
           label,
           time: nNow,
-          updatedAt: new Date().toISOString(),
+          updatedAt: tapIso,
           checkInTime: nNow,
           checkOutTime: "",
           lateMinutes: lateMin,
@@ -156,7 +173,7 @@ export default async function handler(req, res) {
       // Қайталап басудан қорғау: соңғы әрекеттен кейін 30 сек өтпесе — ескерту
       // (бір басып кіргеннен кейін байқамай қайта басса, "шығу" болып кетпейді)
       const lastActionMs = nExisting.updatedAt ? new Date(nExisting.updatedAt).getTime() : 0;
-      if (lastActionMs && Date.now() - lastActionMs < 30000) {
+      if (lastActionMs && tapMs - lastActionMs < 30000) {
         res.status(200).json({
           status: "duplicate",
           employee_name: nEmp.name,
@@ -181,7 +198,7 @@ export default async function handler(req, res) {
         ...nExisting,
         checkOutTime: nNow,
         earlyMinutes: earlyMin,
-        updatedAt: new Date().toISOString(),
+        updatedAt: tapIso,
       }]);
       await appendHistory([{
         at: new Date().toISOString(),
