@@ -149,7 +149,22 @@ export default async function handler(req, res) {
           ? `⚠️ <b>${nEmp.name}</b> ${lateMin} минутқа кешікті (${nNow}) 🎫`
           : `✅ <b>${nEmp.name}</b> жұмысқа келді (${nNow}) 🎫`;
         await notifyAdmins(msgIn);
-        res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "in" });
+        res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "in", late_minutes: lateMin });
+        return;
+      }
+
+      // Қайталап басудан қорғау: соңғы әрекеттен кейін 30 сек өтпесе — ескерту
+      // (бір басып кіргеннен кейін байқамай қайта басса, "шығу" болып кетпейді)
+      const lastActionMs = nExisting.updatedAt ? new Date(nExisting.updatedAt).getTime() : 0;
+      if (lastActionMs && Date.now() - lastActionMs < 30000) {
+        res.status(200).json({
+          status: "duplicate",
+          employee_name: nEmp.name,
+          role: nEmp.role || "",
+          emp_id: nEmp.tabNumber || "",
+          event_type: nExisting.checkOutTime ? "out" : "in",
+          message: "Сіз жаңа ғана белгілендіңіз",
+        });
         return;
       }
 
@@ -183,7 +198,7 @@ export default async function handler(req, res) {
         ? `⚠️ <b>${nEmp.name}</b> жұмыстан ${earlyMin} минут ерте (${nNow}) 🎫`
         : `✅ <b>${nEmp.name}</b> жұмыс күнін аяқтады (${nNow}) 🎫`;
       await notifyAdmins(msgOut);
-      res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "out" });
+      res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "out", early_minutes: earlyMin });
       return;
     }
 
