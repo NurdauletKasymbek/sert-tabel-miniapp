@@ -64,6 +64,7 @@ export default async function handler(req, res) {
         }
       }
     }
+    if (body.faceVector !== undefined) employee.faceVector = body.faceVector ? String(body.faceVector).trim() : "";
     if (body.monthlySalary !== undefined) employee.monthlySalary = Number(String(body.monthlySalary).replace(/[^\d.-]/g, "")) || 0;
     if (body.status === "archived" || body.status === "active") {
       const oldStatus = employee.status === "archived" ? "Архив" : "Белсенді";
