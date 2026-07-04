@@ -2317,22 +2317,12 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
               </p>
               <div className={cx("rounded-[22px] p-4", isDark ? "bg-white/5" : "bg-white shadow")}>
                 <div className="flex items-baseline justify-between">
-                  <span className={cx("text-xs font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Таза қолға</span>
-                  <span className={cx("text-3xl font-black", salary.net < 0 ? "text-red-500" : isDark ? "text-emerald-300" : "text-emerald-600")}>
-                    {salary.net.toLocaleString("kk-KZ")} ₸
+                  <span className={cx("text-xs font-bold uppercase tracking-wider", isDark ? "text-slate-400" : "text-[#7a86a0]")}>Бекітілген айлық</span>
+                  <span className={cx("text-3xl font-black", isDark ? "text-emerald-300" : "text-emerald-600")}>
+                    {salary.monthlySalary.toLocaleString("kk-KZ")} ₸
                   </span>
                 </div>
                 <div className={cx("mt-3 space-y-1.5 border-t pt-3 text-[13px] font-bold", isDark ? "border-white/10" : "border-[#eef2f8]")}>
-                  <div className="flex items-center justify-between">
-                    <span className={cx(isDark ? "text-slate-400" : "text-[#7a86a0]")}>Бекітілген айлық</span>
-                    <span className={cx(isDark ? "text-white" : "text-[#07122b]")}>{salary.monthlySalary.toLocaleString("kk-KZ")} ₸</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className={cx(isDark ? "text-slate-400" : "text-[#7a86a0]")}>
-                      Істелгені ({salary.workedEquivalentDays} күн · {salary.totalHours} сағ)
-                    </span>
-                    <span className={cx(isDark ? "text-white" : "text-[#07122b]")}>{(salary.earned || 0).toLocaleString("kk-KZ")} ₸</span>
-                  </div>
                   <div className="flex items-center justify-between">
                     <span className={cx(isDark ? "text-slate-400" : "text-[#7a86a0]")}>Аванс</span>
                     <span className="text-amber-500">− {(salary.advanceTotal || 0).toLocaleString("kk-KZ")} ₸</span>
