@@ -1946,6 +1946,46 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const [actionError, setActionError] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
 
+  // Бір реттік сұрау терезесі: айлығы Sheets-те әлі қойылмаған жұмысшыдан
+  // бекітілген айлығын сұраймыз. Айлығы бар адамға мүлдем шықпайды.
+  const [salaryPromptOpen, setSalaryPromptOpen] = useState(false);
+  const [salaryInput, setSalaryInput] = useState("");
+  const [salarySaving, setSalarySaving] = useState(false);
+  const [salaryPromptError, setSalaryPromptError] = useState("");
+  const salaryAskedRef = useRef(false);
+
+  useEffect(() => {
+    if (salaryAskedRef.current) return;
+    if (data.salary && !(Number(data.salary.monthlySalary) > 0)) {
+      salaryAskedRef.current = true;
+      setSalaryPromptOpen(true);
+    }
+  }, [data.salary]);
+
+  async function submitSalaryPrompt() {
+    const value = Number(String(salaryInput).replace(/[^\d]/g, "")) || 0;
+    if (value <= 0 || salarySaving) return;
+    haptic("medium");
+    setSalarySaving(true);
+    setSalaryPromptError("");
+    try {
+      await api(`/api/employees/${encodeURIComponent(employee.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ monthlySalary: value, selfUserId: userId }),
+      });
+      haptic("success");
+      setSalaryPromptOpen(false);
+      setMessage({ type: "success", text: `Бекітілген айлық сақталды: ${value.toLocaleString("kk-KZ")} ₸` });
+      setMessageOpen(true);
+      await onRefresh();
+    } catch (err) {
+      haptic("error");
+      setSalaryPromptError(err.message || "Сақталмады. Қайталап көріңіз.");
+    } finally {
+      setSalarySaving(false);
+    }
+  }
+
   function shiftMonth(m, delta) {
     const [y, mm] = String(m).split("-").map(Number);
     const d = new Date(y, (mm - 1) + delta, 1);
@@ -2405,6 +2445,43 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
         </section>
 
         <AnimatePresence>
+          {salaryPromptOpen && (
+            <Modal isDark={isDark} center title="💰 Бекітілген айлығыңыз" onClose={() => setSalaryPromptOpen(false)}>
+              <p className={cx("text-sm font-bold leading-relaxed", isDark ? "text-slate-300" : "text-[#5b6680]")}>
+                Бекітілген айлық жалақыңызды көрсетіңіз. Бұл бір-ақ рет сұралады — енгізген сомаңыз кабинетіңізде көрсетіледі.
+              </p>
+              {salaryPromptError && <div className="mt-3"><InlineError text={salaryPromptError} /></div>}
+              <label className="mt-4 block">
+                <span className={cx("form-label", isDark && "form-label-dark")}>Айлық жалақы (₸)</span>
+                <input
+                  value={salaryInput}
+                  onChange={(e) => setSalaryInput(e.target.value.replace(/[^\d]/g, ""))}
+                  inputMode="numeric"
+                  placeholder="Мысалы: 350000"
+                  className={cx("form-input", isDark && "form-input-dark")}
+                />
+              </label>
+              {Number(salaryInput) > 0 && (
+                <p className={cx("mt-2 text-right text-sm font-black", isDark ? "text-emerald-300" : "text-emerald-600")}>
+                  {Number(salaryInput).toLocaleString("kk-KZ")} ₸
+                </p>
+              )}
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={submitSalaryPrompt}
+                disabled={salarySaving || !(Number(salaryInput) > 0)}
+                className="mt-4 w-full rounded-[20px] bg-[#0b1b5f] px-4 py-4 text-sm font-black text-white shadow-[0_16px_34px_rgba(11,27,95,0.24)] disabled:opacity-50"
+              >
+                {salarySaving ? "Сақталуда..." : "💾 Сақтау"}
+              </motion.button>
+              <button
+                onClick={() => { haptic("light"); setSalaryPromptOpen(false); }}
+                className={cx("mt-2 w-full rounded-[20px] px-4 py-3 text-sm font-black", isDark ? "bg-white/10 text-slate-300" : "bg-[#f4f7fc] text-[#5b6680]")}
+              >
+                Кейін
+              </button>
+            </Modal>
+          )}
           {messageOpen && message && (
             <Modal isDark={isDark} title={message.type === "success" ? "✅ Сәтті" : "❌ Қате"} onClose={() => setMessageOpen(false)}>
               <p className={cx("text-base font-bold", isDark ? "text-white" : "text-[#07122b]")}>{message.text}</p>
