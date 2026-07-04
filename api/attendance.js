@@ -112,7 +112,7 @@ export default async function handler(req, res) {
         const msgIn = lateMin > 0
           ? `⚠️ <b>${nEmp.name}</b> ${lateMin} минутқа кешікті (${nNow}) 🎫`
           : `✅ <b>${nEmp.name}</b> жұмысқа келді (${nNow}) 🎫`;
-        notifyAdmins(msgIn).catch(() => {});
+        await notifyAdmins(msgIn);
         res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "in" });
         return;
       }
@@ -146,7 +146,7 @@ export default async function handler(req, res) {
       const msgOut = earlyMin > 0
         ? `⚠️ <b>${nEmp.name}</b> жұмыстан ${earlyMin} минут ерте (${nNow}) 🎫`
         : `✅ <b>${nEmp.name}</b> жұмыс күнін аяқтады (${nNow}) 🎫`;
-      notifyAdmins(msgOut).catch(() => {});
+      await notifyAdmins(msgOut);
       res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "out" });
       return;
     }
