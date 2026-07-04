@@ -8,7 +8,7 @@ const STATUSES = {
   dayoff: { label: "Демалыс" },
 };
 
-const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні", "Кесте", "Telegram ID", "Айлық жалақы"];
+const EMPLOYEE_HEADERS = ["ID", "Аты-жөні", "Рөлі", "Статус", "Қосылған күні", "Архив күні", "Кесте", "Telegram ID", "Айлық жалақы", "Карта UID"];
 
 const MONTHLY_WORK_DAYS = Number(process.env.MONTHLY_WORK_DAYS) > 0 ? Number(process.env.MONTHLY_WORK_DAYS) : 26;
 const DAILY_NORM_HOURS = 9;
@@ -274,7 +274,7 @@ async function ensureSheets() {
 
   if (requests.length) await sheetsFetch(":batchUpdate", { method: "POST", body: JSON.stringify({ requests }) });
 
-  await ensureHeader(a1(SHEETS.employees, "A1:I1"), EMPLOYEE_HEADERS);
+  await ensureHeader(a1(SHEETS.employees, "A1:J1"), EMPLOYEE_HEADERS);
   await ensureHeader(a1(SHEETS.attendance, "A1:K1"), ATTENDANCE_HEADERS);
   await ensureHeader(a1(SHEETS.reports, "A1:K1"), SUMMARY_HEADERS);
   await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
@@ -371,6 +371,7 @@ function rowToEmployee(row) {
     schedule: labelToSchedule(row[6]),
     telegramId: row[7] ? String(row[7]).trim() : "",
     monthlySalary: Number(String(row[8] || "0").replace(/[^\d.-]/g, "")) || 0,
+    cardUid: row[9] ? String(row[9]).trim() : "",
   };
 }
 
@@ -385,6 +386,7 @@ function employeeToRow(employee) {
     scheduleToLabel(employee.schedule || "standard"),
     employee.telegramId ? String(employee.telegramId) : "",
     employee.monthlySalary || 0,
+    employee.cardUid ? String(employee.cardUid) : "",
   ];
 }
 
@@ -475,7 +477,7 @@ export async function loadStore() {
   // операцияларында (sync, saveEmployees, saveAttendance) орындалады. Бұл әр
   // оқуда ~8 артық Sheets API сұранысын үнемдеп, квота асуын болдырмайды.
   const [employeeRows, attendanceRows, advanceRows, adminRows, historyRows] = await Promise.all([
-    getValues(a1(SHEETS.employees, "A2:I1000"), { unformatted: true }),
+    getValues(a1(SHEETS.employees, "A2:J1000"), { unformatted: true }),
     getValues(a1(SHEETS.attendance, ATTENDANCE_RANGE), { unformatted: true }),
     getValues(a1(SHEETS.advances, "A2:D5000"), { unformatted: true }),
     getValues(a1(SHEETS.admins, "A2:C200"), { unformatted: true }),
@@ -768,8 +770,8 @@ export function nextEmployeeId(employees) {
 export async function saveEmployees(employees) {
   storeCache = null;
   await ensureSheets();
-  await clearRange(a1(SHEETS.employees, "A2:I1000"));
-  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:I1000"), employees.map(employeeToRow));
+  await clearRange(a1(SHEETS.employees, "A2:J1000"));
+  if (employees.length) await updateRange(a1(SHEETS.employees, "A2:J1000"), employees.map(employeeToRow));
 }
 
 function attendanceToRow(row) {

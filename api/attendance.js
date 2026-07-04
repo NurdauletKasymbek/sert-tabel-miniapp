@@ -50,6 +50,107 @@ export default async function handler(req, res) {
     const store = await loadStore();
     const action = String(body.action || "").toLowerCase();
 
+    // ==========================================
+    // NFC КАРТА ТЕРМИНАЛЫ — картаны тигізу
+    // ==========================================
+    // Терминал {card_uid, terminal_id, timestamp} жібереді (action болмауы да мүмкін).
+    // Қызметкерді КАРТА UID арқылы табады (Telegram ID емес — телефоны жоқтар үшін),
+    // геолокация тексерілмейді (терминал жұмыс орнында тұр), кіру/шығу автоматты ауысады.
+    if (action === "nfc-scan" || (!action && body.card_uid)) {
+      const cardUid = String(body.card_uid || "").trim();
+      if (!cardUid) {
+        res.status(200).json({ status: "error", message: "card_uid қажет" });
+        return;
+      }
+      const nEmp = store.employees.find((e) => {
+        const c = String(e.cardUid || "").trim();
+        return c && c.toLowerCase() === cardUid.toLowerCase();
+      });
+      if (!nEmp) {
+        // Терминал қызыл «Тіркелмеген карта» көрсетеді
+        res.status(200).json({ status: "not_found", message: "Employee not found" });
+        return;
+      }
+      if (nEmp.status === "archived") {
+        res.status(200).json({ status: "error", message: "Тіркеу архивте" });
+        return;
+      }
+
+      const nToday = todayDate();
+      const nNow = currentTime();
+      const nExisting = [...store.attendance].reverse().find(
+        (row) => row.date === nToday && row.employeeId === nEmp.id,
+      );
+
+      // Автоматты кіру: бүгін кіру белгісі жоқ болса → КІРУ
+      if (!nExisting || !nExisting.checkInTime) {
+        const inTotal = timeToMinutes(nNow);
+        const lateMin = inTotal > 9 * 60 ? inTotal - 9 * 60 : 0;
+        const label = statusToLabel("present");
+        await upsertAttendance([{
+          date: nToday,
+          employeeId: nEmp.id,
+          name: nEmp.name,
+          role: nEmp.role || "Қызметкер",
+          label,
+          time: nNow,
+          updatedAt: new Date().toISOString(),
+          checkInTime: nNow,
+          checkOutTime: "",
+          lateMinutes: lateMin,
+          earlyMinutes: 0,
+        }]);
+        await appendHistory([{
+          at: new Date().toISOString(),
+          action: "Кіру белгіленді (карта)",
+          employeeId: nEmp.id,
+          name: nEmp.name,
+          date: nToday,
+          oldLabel: "",
+          newLabel: `Кіру: ${nNow}${lateMin ? ` (${lateMin} мин кешік)` : ""}`,
+        }]);
+        const msgIn = lateMin > 0
+          ? `⚠️ <b>${nEmp.name}</b> ${lateMin} минутқа кешікті (${nNow}) 🎫`
+          : `✅ <b>${nEmp.name}</b> жұмысқа келді (${nNow}) 🎫`;
+        notifyAdmins(msgIn).catch(() => {});
+        res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "in" });
+        return;
+      }
+
+      // Бүгін екеуі де белгіленген болса — қайталама тигізу
+      if (nExisting.checkOutTime) {
+        res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "out", message: "Бүгін кіру-шығу белгіленген" });
+        return;
+      }
+
+      // Кіру бар, шығу жоқ → ШЫҒУ
+      const outTotal = timeToMinutes(nNow);
+      const earlyMin = outTotal < WORK_END_HOUR * 60 ? WORK_END_HOUR * 60 - outTotal : 0;
+      await upsertAttendance([{
+        ...nExisting,
+        checkOutTime: nNow,
+        earlyMinutes: earlyMin,
+        updatedAt: new Date().toISOString(),
+      }]);
+      await appendHistory([{
+        at: new Date().toISOString(),
+        action: "Шығу белгіленді (карта)",
+        employeeId: nEmp.id,
+        name: nEmp.name,
+        date: nToday,
+        oldLabel: nExisting.label,
+        newLabel: `Шығу: ${nNow}${earlyMin ? ` (${earlyMin} мин ерте)` : ""}`,
+      }]);
+      invalidateStoreCache();
+      await rebuildSummary(await loadStore());
+      const msgOut = earlyMin > 0
+        ? `⚠️ <b>${nEmp.name}</b> жұмыстан ${earlyMin} минут ерте (${nNow}) 🎫`
+        : `✅ <b>${nEmp.name}</b> жұмыс күнін аяқтады (${nNow}) 🎫`;
+      notifyAdmins(msgOut).catch(() => {});
+      res.status(200).json({ status: "success", employee_name: nEmp.name, event_type: "out" });
+      return;
+    }
+
     if (action === "worker-checkin" || action === "worker-checkout") {
       const telegramId = String(body.telegramId || "").trim();
       const lat = Number(body.lat);
