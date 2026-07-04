@@ -117,6 +117,22 @@ async function onCallback(cb) {
     return;
   }
 
+  if (data.startsWith("bindcard:")) {
+    if ((await roleOf(userId)) !== "admin") return answerCb(cb.id, "Рұқсат жоқ");
+    // Формат: bindcard:<empId>:<uid> — uid ішінде ":" бар, сондықтан слайспен жинаймыз
+    const parts = data.split(":");
+    const empId = parts[1];
+    const uid = parts.slice(2).join(":");
+    const r = await apiCall(`/api/employees/${encodeURIComponent(empId)}`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cardUid: uid }),
+    });
+    if (!r.ok) return answerCb(cb.id, "Қате");
+    const emp = (r.data?.employees || []).find((e) => e.id === empId);
+    await answerCb(cb.id, "Карта бекітілді ✅");
+    await editText(chatId, mid, `✅ <b>${esc(emp?.name || empId)}</b> картасы бекітілді (UID: <code>${esc(uid)}</code>)`, { reply_markup: { inline_keyboard: [] } });
+    return;
+  }
+
   if (data.startsWith("qmark:")) {
     const role = await roleOf(userId);
     if (role !== "admin" && role !== "monitor") return answerCb(cb.id, "Рұқсат жоқ");

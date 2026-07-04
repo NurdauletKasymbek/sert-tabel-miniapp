@@ -36,6 +36,41 @@ async function notifyAdmins(text) {
   }
 }
 
+// Тіркелмеген карта тигізілгенде — әкімшіге UID + қызметкерлер түймелерін жіберу.
+// Әкімші түймені бассы — api/bot.js "bindcard:" callback-і UID-ті сол адамға байлайды.
+async function notifyAdminsNewCard(uid, employees) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  const adminIds = (process.env.ADMIN_TELEGRAM_IDS || "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  if (!adminIds.length) return;
+  // Тек картасы жоқ, архивте емес қызметкерлер (тізім қысқа, қате байлау болмайды)
+  const free = (employees || [])
+    .filter((e) => !String(e.cardUid || "").trim() && e.status !== "archived")
+    .slice(0, 40);
+  const buttons = free.map((e) => ([{ text: e.name, callback_data: `bindcard:${e.id}:${uid}` }]));
+  const header = [
+    "🆕 <b>Жаңа карта тіркелмеген</b>",
+    `🆔 UID: <code>${uid}</code>`,
+    "",
+    free.length ? "Кімге тіркейміз? 👇" : "⚠️ Картасыз бос қызметкер жоқ. Mini App-та қосыңыз.",
+  ].join("\n");
+  for (const adminId of adminIds) {
+    try {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          chat_id: adminId,
+          text: header,
+          parse_mode: "HTML",
+          ...(free.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
+        }),
+      });
+    } catch {}
+  }
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") {
@@ -67,7 +102,8 @@ export default async function handler(req, res) {
         return c && c.toLowerCase() === cardUid.toLowerCase();
       });
       if (!nEmp) {
-        // Терминал қызыл «Тіркелмеген карта» көрсетеді
+        // Тіркелмеген карта → әкімшіге түймелі хабарлама (кімге тіркейміз?)
+        await notifyAdminsNewCard(cardUid, store.employees);
         res.status(200).json({ status: "not_found", message: "Employee not found" });
         return;
       }

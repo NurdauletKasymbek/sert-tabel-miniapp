@@ -52,6 +52,18 @@ export default async function handler(req, res) {
         }
       }
     }
+    if (body.cardUid !== undefined) {
+      const newCard = body.cardUid ? String(body.cardUid).trim() : "";
+      employee.cardUid = newCard;
+      // Бір карта — бір адам: басқа қызметкерден сол UID-ті алып тастаймыз.
+      if (newCard) {
+        for (const other of store.employees) {
+          if (other.id !== employee.id && String(other.cardUid || "").trim().toLowerCase() === newCard.toLowerCase()) {
+            other.cardUid = "";
+          }
+        }
+      }
+    }
     if (body.monthlySalary !== undefined) employee.monthlySalary = Number(String(body.monthlySalary).replace(/[^\d.-]/g, "")) || 0;
     if (body.status === "archived" || body.status === "active") {
       const oldStatus = employee.status === "archived" ? "Архив" : "Белсенді";
