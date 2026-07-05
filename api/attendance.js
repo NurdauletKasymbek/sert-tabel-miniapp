@@ -104,19 +104,22 @@ export default async function handler(req, res) {
     // Терминал {card_uid, terminal_id, timestamp} жібереді (action болмауы да мүмкін).
     // Қызметкерді КАРТА UID арқылы табады (Telegram ID емес — телефоны жоқтар үшін),
     // геолокация тексерілмейді (терминал жұмыс орнында тұр), кіру/шығу автоматты ауысады.
-    if (action === "nfc-scan" || (!action && body.card_uid)) {
+    if (action === "nfc-scan" || (!action && (body.card_uid || body.employee_id))) {
       const cardUid = String(body.card_uid || "").trim();
-      if (!cardUid) {
-        res.status(200).json({ status: "error", message: "card_uid қажет" });
+      const empIdIn = String(body.employee_id || "").trim(); // бет тану осыны жібереді
+      if (!cardUid && !empIdIn) {
+        res.status(200).json({ status: "error", message: "card_uid немесе employee_id қажет" });
         return;
       }
-      const nEmp = store.employees.find((e) => {
-        const c = String(e.cardUid || "").trim();
-        return c && c.toLowerCase() === cardUid.toLowerCase();
-      });
+      const nEmp = empIdIn
+        ? store.employees.find((e) => e.id === empIdIn)
+        : store.employees.find((e) => {
+            const c = String(e.cardUid || "").trim();
+            return c && c.toLowerCase() === cardUid.toLowerCase();
+          });
       if (!nEmp) {
-        // Тіркелмеген карта → әкімшіге түймелі хабарлама (кімге тіркейміз?)
-        await notifyAdminsNewCard(cardUid, store.employees);
+        // Тек карта болса әкімшіге хабарлаймыз (бет тану кезінде емес)
+        if (cardUid) await notifyAdminsNewCard(cardUid, store.employees);
         res.status(200).json({ status: "not_found", message: "Employee not found" });
         return;
       }
