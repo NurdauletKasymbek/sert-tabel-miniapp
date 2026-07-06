@@ -174,7 +174,6 @@ export default async function handler(req, res) {
       }
 
       // Қайталап басудан қорғау: соңғы әрекеттен кейін 30 сек өтпесе — ескерту
-      // (бір басып кіргеннен кейін байқамай қайта басса, "шығу" болып кетпейді)
       const lastActionMs = nExisting.updatedAt ? new Date(nExisting.updatedAt).getTime() : 0;
       if (lastActionMs && tapMs - lastActionMs < 30000) {
         res.status(200).json({
@@ -184,6 +183,23 @@ export default async function handler(req, res) {
           emp_id: nEmp.tabNumber || "",
           event_type: nExisting.checkOutTime ? "out" : "in",
           message: "Сіз жаңа ғана белгілендіңіз",
+        });
+        return;
+      }
+
+      // Минималды жұмыс сеансы: кіргеннен кейін N минут ішінде қайта басу —
+      // ШЫҒУ деп ЖАЗЫЛМАЙДЫ (қызық басудан қорғау: әйтпесе жұмыс күні 5 минут
+      // болып есептеліп, жүйе адамды "кетіп қалды" деп ойлайды).
+      // Шынымен ерте кету керек болса — әкімші Mini App-та қолмен түзетеді (set-times).
+      const MIN_SESSION_MIN = Number(process.env.MIN_SESSION_MINUTES || "60");
+      if (!nExisting.checkOutTime && lastActionMs && tapMs - lastActionMs < MIN_SESSION_MIN * 60000) {
+        res.status(200).json({
+          status: "duplicate",
+          employee_name: nEmp.name,
+          role: nEmp.role || "",
+          emp_id: nEmp.tabNumber || "",
+          event_type: "in",
+          message: `Кіру белгіленген (${nExisting.checkInTime}).\nШығу кіргеннен ${MIN_SESSION_MIN} мин өткенде жазылады`,
         });
         return;
       }
