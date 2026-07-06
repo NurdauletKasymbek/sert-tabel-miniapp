@@ -40,7 +40,7 @@ const SUMMARY_HEADERS = ["Ай", "Қызметкер ID", "Аты-жөні", "Р
 const DAILY_HEADERS = ["Күн", "Жұмыста", "Жарты күн", "Жоқ", "Демалыс", "Белгі жоқ", "Барлығы"];
 const HISTORY_HEADERS = ["Уақыт", "Әрекет", "Қызметкер ID", "Аты-жөні", "Күн", "Бұрынғы белгі", "Жаңа белгі"];
 const ADVANCE_HEADERS = ["Күні", "Аты-жөні", "Сома", "Ескертпе"];
-const ADMIN_HEADERS = ["Аты-жөні", "Telegram ID", "Рөл"];
+const ADMIN_HEADERS = ["Аты-жөні", "Telegram ID", "Рөл", "Карта UID"];
 
 const SHEETS = {
   employees: "Қызметкерлер",
@@ -280,7 +280,7 @@ async function ensureSheets() {
   await ensureHeader(a1(SHEETS.advances, "A1:D1"), ADVANCE_HEADERS);
   await clearRange(a1(SHEETS.advances, "E1:E5000"));
   await ensureAdvanceNameValidation();
-  await ensureHeader(a1(SHEETS.admins, "A1:C1"), ADMIN_HEADERS);
+  await ensureHeader(a1(SHEETS.admins, "A1:D1"), ADMIN_HEADERS);
   await ensureHeader(a1(SHEETS.history, "A1:G1"), HISTORY_HEADERS);
   ensureSheetsLastRun = Date.now();
 }
@@ -484,7 +484,7 @@ export async function loadStore() {
     getValues(a1(SHEETS.employees, "A2:L1000"), { unformatted: true }),
     getValues(a1(SHEETS.attendance, ATTENDANCE_RANGE), { unformatted: true }),
     getValues(a1(SHEETS.advances, "A2:D5000"), { unformatted: true }),
-    getValues(a1(SHEETS.admins, "A2:C200"), { unformatted: true }),
+    getValues(a1(SHEETS.admins, "A2:D200"), { unformatted: true }),
     getValues(a1(SHEETS.history, "A2:G5000"), { unformatted: true }),
   ]);
   const employees = employeeRows
@@ -517,12 +517,19 @@ export async function loadStore() {
     oldLabel: row[5],
     newLabel: row[6],
   }));
-  const admins = adminRows.filter((row) => row[1]).map((row) => {
+  // Telegram ID-сіз, тек карта UID-і бар әкімшілер де қабылданады (терминал үшін)
+  const admins = adminRows.filter((row) => row[1] || row[3]).map((row) => {
     const roleLabel = String(row[2] || "").trim();
     const roleText = roleLabel.toLowerCase();
     // Қол жеткізу: мәтінде «бақыл»/monitor болса — bақылаушы, әйтпесе толық әкімші.
     const role = roleText.includes("бақыл") || roleText.includes("monitor") || roleText.includes("монитор") ? "monitor" : "admin";
-    return { name: String(row[0] || "").trim(), telegramId: String(row[1]).trim(), role, roleLabel };
+    return {
+      name: String(row[0] || "").trim(),
+      telegramId: String(row[1] || "").trim(),
+      role,
+      roleLabel,
+      cardUid: String(row[3] || "").trim(),
+    };
   });
   const data = { employees, attendance, advances, admins, history };
   storeCache = { at: Date.now(), data };

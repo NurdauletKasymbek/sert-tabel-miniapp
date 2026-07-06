@@ -40,6 +40,27 @@ export default async function handler(req, res) {
         return;
       }
     }
+    // Терминалдан тіркеу: карта UID бірге келеді. Карта бос болуы тексеріледі.
+    const cardUid = String(body.cardUid || "").trim();
+    if (cardUid) {
+      const owner = store.employees.find(
+        (e) => e.status !== "archived" &&
+          String(e.cardUid || "").trim().toLowerCase() === cardUid.toLowerCase(),
+      );
+      if (owner) {
+        res.status(409).json({ error: `Бұл карта тіркелген: ${owner.name}` });
+        return;
+      }
+    }
+    // Табель № автоматты: бар нөмірлердің ең үлкені + 1
+    let tabNumber = String(body.tabNumber || "").trim();
+    if (!tabNumber) {
+      const maxTab = store.employees.reduce((m, e) => {
+        const n = parseInt(String(e.tabNumber || "").replace(/\D/g, ""), 10);
+        return Number.isFinite(n) && n > m ? n : m;
+      }, 0);
+      tabNumber = String(maxTab + 1);
+    }
     const schedule = body.schedule === "school-half" ? "school-half" : "standard";
     const employee = {
       id: nextEmployeeId(store.employees),
@@ -50,12 +71,14 @@ export default async function handler(req, res) {
       archivedAt: "",
       schedule,
       telegramId: String(body.telegramId || "").trim(),
+      cardUid,
+      tabNumber,
     };
     store.employees.push(employee);
     await saveEmployees(store.employees);
-    await appendHistory([{ at: new Date().toISOString(), action: "Қызметкер қосылды", employeeId: employee.id, name: employee.name, date: "", oldLabel: "", newLabel: "Белсенді" }]);
+    await appendHistory([{ at: new Date().toISOString(), action: "Қызметкер қосылды", employeeId: employee.id, name: employee.name, date: "", oldLabel: "", newLabel: `Белсенді${cardUid ? ` (карта: ${cardUid})` : ""}` }]);
     await rebuildSummary(store);
-    res.status(201).json(publicState(store));
+    res.status(201).json({ ...publicState(store), employeeId: employee.id, tabNumber });
   } catch (error) {
     res.status(500).json({ error: `Қызметкер сақталмады: ${error.message}` });
   }

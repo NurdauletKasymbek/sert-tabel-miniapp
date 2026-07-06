@@ -15,8 +15,13 @@ export default async function handler(req, res) {
         tabNumber: e.tabNumber || "",
         faceVector: e.faceVector || "",
       }));
+    // Әкімші карталары (Әкімшілер парағының "Карта UID" бағаны + толық admin рөлі) —
+    // терминал осы карталар басылғанда әкімші мәзірін ашады
+    const adminCardUids = (store.admins || [])
+      .filter((a) => a.role === "admin" && a.cardUid)
+      .map((a) => a.cardUid);
     res.setHeader("Cache-Control", "no-store");
-    res.status(200).json({ employees });
+    res.status(200).json({ employees, adminCardUids });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
