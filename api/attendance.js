@@ -33,12 +33,20 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-async function notifyAdmins(text) {
+// Алушылар: env ADMIN_TELEGRAM_IDS + «Әкімшілер» парағындағы Telegram ID-і барлар
+function adminRecipients(store) {
+  const envIds = (process.env.ADMIN_TELEGRAM_IDS || "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  const sheetIds = ((store && store.admins) || [])
+    .map((a) => String(a.telegramId || "").trim())
+    .filter(Boolean);
+  return [...new Set([...envIds, ...sheetIds])];
+}
+
+async function notifyAdmins(text, store = null) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
-  const adminIds = (process.env.ADMIN_TELEGRAM_IDS || "")
-    .split(",").map((s) => s.trim()).filter(Boolean);
-  for (const adminId of adminIds) {
+  for (const adminId of adminRecipients(store)) {
     try {
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
@@ -168,7 +176,7 @@ export default async function handler(req, res) {
         const msgIn = lateMin > 0
           ? `⚠️ <b>${nEmp.name}</b> ${lateMin} минутқа кешікті (${nNow}) 🎫`
           : `✅ <b>${nEmp.name}</b> жұмысқа келді (${nNow}) 🎫`;
-        await notifyAdmins(msgIn);
+        await notifyAdmins(msgIn, store);
         res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "in", late_minutes: lateMin });
         return;
       }
@@ -233,7 +241,7 @@ export default async function handler(req, res) {
       const msgOut = earlyMin > 0
         ? `⚠️ <b>${nEmp.name}</b> жұмыстан ${earlyMin} минут ерте (${nNow}) 🎫`
         : `✅ <b>${nEmp.name}</b> жұмыс күнін аяқтады (${nNow}) 🎫`;
-      await notifyAdmins(msgOut);
+      await notifyAdmins(msgOut, store);
       res.status(200).json({ status: "success", employee_name: nEmp.name, role: nEmp.role || "", emp_id: nEmp.tabNumber || "", event_type: "out", early_minutes: earlyMin });
       return;
     }
@@ -334,7 +342,7 @@ export default async function handler(req, res) {
         const adminMsg = lateMin > 0
           ? `⚠️ <b>${wEmployee.name}</b> ${lateMin} минутқа кешікті (${now})`
           : `✅ <b>${wEmployee.name}</b> жұмысқа келді (${now})`;
-        notifyAdmins(adminMsg).catch(() => {});
+        await notifyAdmins(adminMsg, store); // await міндетті: Vercel жауаптан кейін фонды жіберуді үзеді
 
         res.status(200).json({
           ok: true,
@@ -394,7 +402,7 @@ export default async function handler(req, res) {
       } else {
         parts.push(`Жұмыс күнін аяқтады (${now})`);
       }
-      notifyAdmins(parts.join("\n")).catch(() => {});
+      await notifyAdmins(parts.join("\n"), store); // await міндетті (жоғарыдағыдай)
 
       res.status(200).json({
         ok: true,

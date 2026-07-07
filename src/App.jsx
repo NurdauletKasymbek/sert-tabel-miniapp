@@ -1954,13 +1954,8 @@ function WorkerApp({ isDark, theme, setTheme, data, userId, photoUrl, onRefresh 
   const [salaryPromptError, setSalaryPromptError] = useState("");
   const salaryAskedRef = useRef(false);
 
-  useEffect(() => {
-    if (salaryAskedRef.current) return;
-    if (data.salary && !(Number(data.salary.monthlySalary) > 0)) {
-      salaryAskedRef.current = true;
-      setSalaryPromptOpen(true);
-    }
-  }, [data.salary]);
+  // «Айлығыңды енгіз» попабы ӨШІРІЛГЕН — жұмысшыны мазалайтын болды.
+  // Айлықты әкімші өзі қояды (қызметкер бетінде немесе Sheets-те).
 
   async function submitSalaryPrompt() {
     const value = Number(String(salaryInput).replace(/[^\d]/g, "")) || 0;
